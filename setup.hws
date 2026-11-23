@@ -17,7 +17,7 @@ Function p_Prelim()
 	p_Prout("~B~~m~-SUPER- STAR TREK~n~")
 	p_Skip(1)
 	p_Prout("Latest update-21 Sept 78")
-	p_Prout("BBS Door Version ~g~1.1.0~w~ - Hollywood edition - Get it at ~y~https://SynchronetBBS.org~w~")
+	p_Prout("BBS Door Version ~g~1.1.0~w~ - Hollywood edition - Get it at ~y~https://superstartrek.gameplayer.club~w~")
 	p_Skip(1)
 EndFunction
 
