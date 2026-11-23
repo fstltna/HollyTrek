@@ -1,5 +1,5 @@
 /*
-** Super Star Trek -- Hollywood edition
+** HollyTrek -- Super Star Trek, Hollywood edition
 **
 ** A graphical port of the BBS door version 1.1.0 of Tom Almy's
 ** "Super Star Trek" (C), based on the 1978 classic.
@@ -12,8 +12,8 @@
 ** Needs: sst.doc in the same directory for the HELP command.
 */
 
-@APPTITLE "Super Star Trek"
-@DISPLAY {Title = "Super Star Trek", Width = 1024, Height = 768, Color = $000000}
+@APPTITLE "HollyTrek"
+@DISPLAY {Title = "HollyTrek - Super Star Trek", Width = 1024, Height = 768, Color = $000000}
 
 @INCLUDE "io.hws"
 @INCLUDE "gfx.hws"
@@ -29,6 +29,8 @@
 ; ------------------------------------------------------------------
 ; Constants
 ; ------------------------------------------------------------------
+
+HT_VERSION = "1.0.0"   ; HollyTrek version, shown on the title screen
 
 PI = 3.141592653589793
 INF = 1000000.0 * 1000000.0 * 1000000.0 * 1000000.0 * 1000000.0   ; "1e30"

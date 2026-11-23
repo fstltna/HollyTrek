@@ -464,7 +464,7 @@ Function p_DrawTitle()
 	p_Rect(GX + 20, GY + 62, CS * 10 - 40, 76, $05070F)
 	p_Frame(GX + 20, GY + 62, CS * 10 - 40, 76, COL_EDGE)
 	p_CenterText(FONT_BIG, GY + 70, "-SUPER- STAR TREK", COL_TITLE)
-	p_CenterText(FONT_UI, GY + 112, "Version 1.1.0  -  Hollywood edition", COL_TEXT)
+	p_CenterText(FONT_UI, GY + 112, "HollyTrek " .. HT_VERSION .. "  -  Hollywood edition", COL_TEXT)
 	p_DrawStarship(cx, GY + 200, $C8D4E0, $FFFFFF)
 	p_DrawKlingon(cx + 110, GY + 160, $B02828, $701818)
 	p_DrawKlingon(cx - 120, GY + 250, $B02828, $701818)
@@ -715,10 +715,7 @@ Function p_DrawHeader()
 		p_Text(FONT_UI, 330, 5, "Stardate " .. p_FmtF(d.date, 0, 1) .. "     Klingons " .. d.remkl ..
 			"     Bases " .. d.rembase, $C0D0F0)
 	EndIf
-	p_Text(FONT_SMALL, SCR_W - 330, 7, "Return or click the console to send", COL_LABEL)
-	If g_lastkey <> ""
-		p_Text(FONT_SMALL, SCR_W - 140, 7, "key: " .. g_lastkey, $5A6A8A)
-	EndIf
+	p_Text(FONT_SMALL, SCR_W - 230, 7, "Return or click the console to send", COL_LABEL)
 EndFunction
 
 Function p_Redraw()
