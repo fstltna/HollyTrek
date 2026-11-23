@@ -1,7 +1,11 @@
-# Super Star Trek: Hollywood edition
+# HollyTrek
 
-This is a graphical port of the BBS door version 1.1.0 of Super Star Trek
+HollyTrek is Super Star Trek with a graphical bridge. It is a port of the BBS
+door version 1.1.0 of Super Star Trek
 (https://github.com/fstltna/SuperStarTrek) to the Hollywood language.
+
+* Repository: https://github.com/fstltna/HollyTrek
+* Website: https://superstartrek.gameplayer.club
 
 The whole C game has been translated. That covers all 37 commands, the
 Commanders and the Super-commander, Romulans, Tholians and their webs, planets,
@@ -25,7 +29,27 @@ and the game runs in a graphical bridge screen:
 * **Console.** The original game text, with its colours kept, plus an inline
   command line.
 
-## Running
+## Ready-made builds
+
+You don't need Hollywood to play. Download the build for your system and keep
+`sst.doc` (needed for HELP) and `SST_Logo.txt` in the same folder.
+
+| File                  | System                         |
+|-----------------------|--------------------------------|
+| `HollyTrek-Win64.exe` | Windows, 64-bit                |
+| `HollyTrek-Win32.exe` | Windows, 32-bit                |
+| `HollyTrek`           | Linux, 64-bit x86              |
+| `HollyTrek-Linux32`   | Linux, 32-bit x86              |
+| `HollyTrek-LinuxARM`  | Linux, 64-bit ARM (aarch64)    |
+| `HollyTrek-AmigaOS3`  | AmigaOS 3 (68k)                |
+| `HollyTrek-AmigaOS4`  | AmigaOS 4 (PowerPC)            |
+| `HollyTrek-MorphOS`   | MorphOS                        |
+| `HollyTrek-AROS`      | AROS (x86)                     |
+
+On Linux you may need to make the file executable first:
+`chmod +x HollyTrek`.
+
+## Running from source
 
 1. Keep these files in one folder: `sst.hws` (the main script), `io.hws`,
    `gfx.hws`, `setup.hws`, `moving.hws`, `battle.hws`, `events.hws`, `ai.hws`,
@@ -50,6 +74,7 @@ prompts. The GUI adds these shortcuts:
   aims a torpedo, and `move automatic` followed by a click sets a course.
 * **Clicking a quadrant** on the star chart types its coordinates. Use it with
   `move automatic`, `computer` or `probe`.
+* **Return** sends the line. Clicking anywhere in the console does the same.
 * **Up and Down** step through your command history. **Esc** clears the line.
 * **The mouse wheel, PageUp and PageDown** scroll back through the console.
 * When the console fills up, `[CONTINUE?]` appears, as in the original. Press
@@ -100,6 +125,11 @@ Coordinates are written row first, then column, as in the original
 Game logic functions keep their C names with a `p_` prefix (for example,
 `phasers()` is `p_Phasers()`), so each one can be compared side by side with the
 original.
+
+## Version
+
+The HollyTrek version is set by `HT_VERSION` near the top of `sst.hws`. It
+appears on the title screen and in the opening text.
 
 ## License
 

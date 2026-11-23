@@ -1,0 +1,4 @@
+# Files the game writes while you play
+*.trk
+emsave.trk
+plaque*.txt
