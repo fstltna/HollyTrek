@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=HollyTrek
+GenericName=Space strategy game
+Comment=Super Star Trek with a graphical bridge
+Exec=hollytrek
+Icon=${SNAP}/meta/gui/hollytrek.png
+Terminal=false
+Categories=Game;StrategyGame;
+Keywords=star;trek;klingon;space;strategy;

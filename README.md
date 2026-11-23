@@ -49,6 +49,17 @@ You don't need Hollywood to play. Download the build for your system and keep
 On Linux you may need to make the file executable first:
 `chmod +x HollyTrek`.
 
+### Snap
+
+On Linux you can also install it from the Snap Store:
+
+    sudo snap install hollytrek
+
+The snap stores saved games and plaques in `~/snap/hollytrek/common`.
+The snap is built from `snap/snapcraft.yaml` and packs the prebuilt Linux
+binaries in this repository (`HollyTrek` for amd64, `HollyTrek-LinuxARM` for
+arm64), so rebuild those before building a new snap.
+
 ## Running from source
 
 1. Keep these files in one folder: `sst.hws` (the main script), `io.hws`,

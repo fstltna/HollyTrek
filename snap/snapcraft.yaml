@@ -1,0 +1,57 @@
+name: hollytrek
+title: HollyTrek
+summary: Super Star Trek with a graphical bridge
+description: |
+  HollyTrek is the classic Super Star Trek game (the BBS door version
+  1.1.0, based on the 1978 original) with a graphical bridge screen.
+
+  Hunt down the Klingon invasion fleet before time runs out. Fire phasers
+  and photon torpedoes, raise shields, dock at starbases, mine dilithium
+  on planets, launch deep space probes and outwit Romulans, Tholians and
+  the Super-commander.
+
+  The animated short-range scan shows torpedoes in flight, phaser beams and
+  explosions. Status, star chart and damage panels stay on screen, and
+  every command has a button. Click a sector or quadrant to type its
+  coordinates.
+
+  Saved games and plaques are stored in ~/snap/hollytrek/common.
+adopt-info: hollytrek    # the version comes from HT_VERSION in sst.hws
+base: core24
+grade: stable
+confinement: strict
+license: GPL-3.0
+icon: snap/gui/hollytrek.png
+website: https://superstartrek.gameplayer.club
+source-code: https://github.com/fstltna/HollyTrek
+
+platforms:
+  amd64:
+  arm64:
+
+apps:
+  hollytrek:
+    command: bin/hollytrek
+    desktop: share/applications/hollytrek.desktop
+    # X11 and the desktop plumbing (Hollywood draws with X11; on Wayland
+    # it runs through XWayland)
+    extensions: [gnome]
+
+parts:
+  hollytrek:
+    # Hollywood programs can't be compiled inside the snap build, so the
+    # snap packs the Linux binaries that are committed to the repository.
+    plugin: nil
+    source: .
+    override-build: |
+      case "$CRAFT_ARCH_BUILD_FOR" in
+        amd64) BIN=HollyTrek ;;
+        arm64) BIN=HollyTrek-LinuxARM ;;
+        *) echo "No HollyTrek build for $CRAFT_ARCH_BUILD_FOR"; exit 1 ;;
+      esac
+      install -Dm755 "$BIN" "$CRAFT_PART_INSTALL/bin/hollytrek-bin"
+      install -Dm755 snap/local/hollytrek.sh "$CRAFT_PART_INSTALL/bin/hollytrek"
+      install -Dm644 sst.doc "$CRAFT_PART_INSTALL/share/hollytrek/sst.doc"
+      install -Dm644 SST_Logo.txt "$CRAFT_PART_INSTALL/share/hollytrek/SST_Logo.txt"
+      install -Dm644 snap/local/hollytrek.desktop "$CRAFT_PART_INSTALL/share/applications/hollytrek.desktop"
+      craftctl set version="$(sed -n 's/^HT_VERSION = "\([^"]*\)".*/\1/p' sst.hws)"
