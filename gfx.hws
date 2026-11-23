@@ -44,6 +44,10 @@ g_nbuttons = 0
 g_frame = 0
 g_cw = 8
 g_cwc = 7
+g_lastkey = ""
+g_retheld = False
+g_lastsubmit = -1000
+g_bsheld = False
 
 FONT_LOG = 1
 FONT_UI = 2
@@ -101,7 +105,12 @@ Function p_InitGfx()
 
 	InstallEventHandler({OnKeyDown = p_OnKeyDown, VanillaKey = p_OnVanilla,
 		OnMouseDown = p_OnMouseDown, OnWheelUp = p_OnWheelUp,
-		OnWheelDown = p_OnWheelDown})
+		OnWheelDown = p_OnWheelDown, OnRawKeyDown = p_OnRawKeyDown})
+
+	; fallback: poll the Return/Enter/Backspace keys every 40 ms, in case
+	; this Hollywood version does not report them through the key events
+	StartTimer(1)
+	SetInterval(1, p_KeyPoll, 40)
 
 	BeginDoubleBuffer()
 EndFunction
@@ -706,7 +715,10 @@ Function p_DrawHeader()
 		p_Text(FONT_UI, 330, 5, "Stardate " .. p_FmtF(d.date, 0, 1) .. "     Klingons " .. d.remkl ..
 			"     Bases " .. d.rembase, $C0D0F0)
 	EndIf
-	p_Text(FONT_SMALL, SCR_W - 270, 7, "Type commands, or click buttons and maps", COL_LABEL)
+	p_Text(FONT_SMALL, SCR_W - 330, 7, "Return or click the console to send", COL_LABEL)
+	If g_lastkey <> ""
+		p_Text(FONT_SMALL, SCR_W - 140, 7, "key: " .. g_lastkey, $5A6A8A)
+	EndIf
 EndFunction
 
 Function p_Redraw()
@@ -823,12 +835,21 @@ Function p_OnVanilla(msg)
 	Local k = msg.key
 	If g_mode = "key"
 		g_keyhit = True
+		p_MarkEnter(k)
 		Return
 	EndIf
 	If g_mode <> "line"
 		Return
 	EndIf
 	If StrLen(k) <> 1
+		Return
+	EndIf
+	If (k = Chr(13)) Or (k = Chr(10))
+		p_SubmitLine()
+		Return
+	EndIf
+	If k = Chr(8)
+		p_Backspace()
 		Return
 	EndIf
 	If (k = "~") Or (k = Chr(13)) Or (k = Chr(10)) Or (k = Chr(8)) Or (k = Chr(9)) Or (k = Chr(27)) Or (k = Chr(127))
@@ -840,10 +861,83 @@ Function p_OnVanilla(msg)
 	p_Redraw()
 EndFunction
 
-Function p_OnKeyDown(msg)
-	Local k = msg.key
+; Several key paths can report the same Return press, so only the first
+; one counts: a press is accepted only if the key was seen released since
+; the last one (g_retheld) and at least 150 ms have passed.
+Function p_SubmitLine()
+	Local now = GetTimer(1)
+	If g_mode = "line"
+		If (g_retheld = False) And (now - g_lastsubmit > 150)
+			g_lineReady = True
+			g_lastsubmit = now
+		EndIf
+	EndIf
+	g_retheld = True
+EndFunction
+
+Function p_Backspace()
+	If (g_mode = "line") And (StrLen(g_input) > 0)
+		g_input = p_Left(g_input, StrLen(g_input) - 1)
+		p_Redraw()
+	EndIf
+EndFunction
+
+; an Enter that answered a [CONTINUE?] must not also send the next line
+Function p_MarkEnter(k)
+	If p_IsEnterName(k)
+		g_retheld = True
+		g_lastsubmit = GetTimer(1)
+	EndIf
+EndFunction
+
+Function p_IsEnterName(k)
+	k = UpperStr(k)
+	Return((k = "RETURN") Or (k = "ENTER") Or (k = "KP_ENTER") Or (k = "NUMPADENTER") Or (k = Chr(13)) Or (k = Chr(10)))
+EndFunction
+
+; raw key events report the key names too (and fire on all platforms)
+Function p_OnRawKeyDown(msg)
+	g_lastkey = UpperStr(msg.key)
 	If g_mode = "key"
 		g_keyhit = True
+		p_MarkEnter(msg.key)
+		Return
+	EndIf
+	If g_mode = "line"
+		If p_IsEnterName(msg.key)
+			p_SubmitLine()
+		EndIf
+	EndIf
+EndFunction
+
+Function p_KeyPoll(msg)
+	Local down
+	down = IsKeyDown("RETURN") Or IsKeyDown("ENTER")
+	If down And (g_retheld = False)
+		If g_mode = "line"
+			g_lastkey = "RETURN (polled)"
+			p_SubmitLine()
+		ElseIf g_mode = "key"
+			g_keyhit = True
+			g_retheld = True
+		EndIf
+	EndIf
+	If (down = False) And (GetTimer(1) - g_lastsubmit > 150)
+		g_retheld = False
+	EndIf
+	down = IsKeyDown("BACKSPACE")
+	If down And (g_bsheld = False) And (g_mode = "line")
+		p_Backspace()
+	EndIf
+	g_bsheld = down
+EndFunction
+
+Function p_OnKeyDown(msg)
+	Local k = UpperStr(msg.key)
+	g_lastkey = k
+	If g_mode = "key"
+		g_keyhit = True
+		p_MarkEnter(k)
 		Return
 	EndIf
 	If k = "PAGEUP"
@@ -867,13 +961,11 @@ Function p_OnKeyDown(msg)
 	If g_mode <> "line"
 		Return
 	EndIf
-	If (k = "RETURN") Or (k = "ENTER")
-		g_lineReady = True
+	If p_IsEnterName(k)
+		p_SubmitLine()
 	ElseIf (k = "BACKSPACE") Or (k = "DEL")
-		If StrLen(g_input) > 0
-			g_input = p_Left(g_input, StrLen(g_input) - 1)
-		EndIf
-		p_Redraw()
+		g_bsheld = True
+		p_Backspace()
 	ElseIf k = "ESC"
 		g_input = ""
 		p_Redraw()
@@ -922,6 +1014,13 @@ Function p_OnMouseDown(msg)
 			Return
 		EndIf
 	Next
+	; clicking in the console sends the line (like pressing Return)
+	If my >= LOGY - 6
+		g_retheld = False
+		g_lastsubmit = -1000
+		p_SubmitLine()
+		Return
+	EndIf
 	; short range scan: type "row col"
 	If g_ingame And (mx >= GX) And (mx < GX + CS * 10) And (my >= GY) And (my < GY + CS * 10)
 		c = Int((mx - GX) / CS) + 1
