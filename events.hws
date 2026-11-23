@@ -1,0 +1,938 @@
+/*
+** events.hws -- Super Star Trek for Hollywood
+** time-driven events, resting, novas and supernovas
+*/
+
+Function p_Events()
+	Local ictbeam = 0
+	Local ipage = 0
+	Local istract = 0
+	Local evline, i, j, k, l, ixhold, iyhold, datemin, xtime, repair, yank
+	Local found, dotbeam, dokill, fintim
+
+	fintim = d.date + a.time
+	ixhold = 0
+	iyhold = 0
+	i = 0
+
+	If (a.stdamtim = INF) And (p_Reports() = False)
+		; chart will no longer be updated because radio is dead
+		a.stdamtim = d.date
+		For i = 1 To 8
+			For j = 1 To 8
+				If starch[i][j] = 1
+					starch[i][j] = d.galaxy[i][j] + 1000
+				EndIf
+			Next
+		Next
+	EndIf
+
+	Repeat
+		; select earliest extraneous event, evline==0 if no events
+		evline = FSPY
+		If a.alldone <> 0
+			Return
+		EndIf
+		datemin = fintim
+		For l = 1 To NEVENTS
+			If future[l] <= datemin
+				evline = l
+				datemin = future[l]
+			EndIf
+		Next
+		xtime = datemin - d.date
+		If a.iscloaking <> 0
+			a.energy = a.energy - xtime * 500.0
+			If a.energy <= 0.0
+				p_Finish(FNRG)
+				Return
+			EndIf
+		EndIf
+		d.date = datemin
+		; decrement Federation resources and recompute remaining time
+		d.remres = d.remres - (d.remkl + 4 * d.remcom) * xtime
+		d.remtime = d.remres / (d.remkl + 4 * d.remcom)
+		If d.remtime <= 0
+			p_Finish(FDEPLETE)
+			Return
+		EndIf
+		; is life support adequate?
+		If (damage[DLIFSUP] <> 0) And (a.condit <> IHDOCKED)
+			If (a.lsupres < xtime) And (damage[DLIFSUP] > a.lsupres)
+				p_Finish(FLIFESUP)
+				Return
+			EndIf
+			a.lsupres = a.lsupres - xtime
+			If damage[DLIFSUP] <= xtime
+				a.lsupres = a.inlsr
+			EndIf
+		EndIf
+		; fix devices
+		repair = xtime
+		If a.condit = IHDOCKED
+			repair = repair / a.docfac
+		EndIf
+		; don't fix Deathray here
+		For l = 1 To ndevice
+			If (damage[l] > 0.0) And (l <> DDRAY)
+				If damage[l] - repair > 0.0
+					damage[l] = damage[l] - repair
+				Else
+					damage[l] = 0.0
+				EndIf
+			EndIf
+		Next
+		; fix Deathray if docked
+		If (damage[DDRAY] > 0.0) And (a.condit = IHDOCKED)
+			If damage[DDRAY] - xtime > 0.0
+				damage[DDRAY] = damage[DDRAY] - xtime
+			Else
+				damage[DDRAY] = 0.0
+			EndIf
+		EndIf
+		; if radio repaired, update star chart and attack reports
+		If (a.stdamtim <> INF) And p_Reports()
+			a.stdamtim = INF
+			p_Prout("~r~Lt. Uhura~w~- \"Captain, the sub-space radio is working and")
+			p_Prout("   surveillance reports are coming in.")
+			p_Skip(1)
+			For i = 1 To 8
+				For j = 1 To 8
+					If starch[i][j] > 999
+						starch[i][j] = 1
+					EndIf
+				Next
+			Next
+			If a.iseenit = 0
+				p_Attakreport()
+				a.iseenit = 1
+			EndIf
+			p_Skip(1)
+			p_Prout("   ~m~The star chart is now up to date.~w~\"")
+			p_Skip(1)
+		EndIf
+		; cause extraneous event LINE to occur
+		a.time = a.time - xtime
+
+		If evline = FSNOVA
+			; supernova
+			If ipage = 0
+				p_Pause(1)
+			EndIf
+			ipage = 1
+			p_Snova(0, 0)
+			future[FSNOVA] = d.date + p_Expran(0.5 * a.intime)
+			If d.galaxy[a.quadx][a.quady] = 1000
+				Return
+			EndIf
+
+		ElseIf (evline = FSPY) Or (evline = FTBEAM)
+			dotbeam = False
+			If evline = FSPY
+				; check with spy to see if S.C. should tractor beam
+				If (d.nscrem = 0) Or (a.iscloaked <> 0) Or (ictbeam + istract > 0) Or (a.condit = IHDOCKED) Or (a.isatb = 1) Or (a.iscate = 1)
+					Return
+				EndIf
+				If (a.ientesc <> 0) Or ((a.energy < 2000) And (a.torps < 4) And (a.shield < 1250)) Or ((damage[DPHASER] > 0) And ((damage[DPHOTON] > 0) Or (a.torps < 4))) Or ((damage[DSHIELD] > 0) And ((a.energy < 2500) Or (damage[DPHASER] > 0)) And ((a.torps < 5) Or (damage[DPHOTON] > 0)))
+					; tractor-beam her!
+					istract = 1
+					yank = p_Sq(d.isx - a.quadx) + p_Sq(d.isy - a.quady)
+					dotbeam = True
+				Else
+					Return
+				EndIf
+			Else
+				; tractor beam
+				If d.remcom = 0
+					future[FTBEAM] = INF
+				Else
+					i = Int(p_Rand() * d.remcom + 1.0)
+					yank = p_Sq(d.cx[i] - a.quadx) + p_Sq(d.cy[i] - a.quady)
+					If (istract <> 0) Or (a.condit = IHDOCKED) Or (a.iscloaked <> 0) Or (yank = 0)
+						; drats! have to reschedule
+						future[FTBEAM] = d.date + a.time + p_Expran(1.5 * a.intime / d.remcom)
+					Else
+						dotbeam = True
+					EndIf
+				EndIf
+			EndIf
+			If dotbeam
+				; tractor beaming cases merge here
+				yank = Sqrt(yank)
+				If ipage = 0
+					p_Pause(1)
+				EndIf
+				ipage = 1
+				a.time = (10.0 / (7.5 * 7.5)) * yank   ; 7.5 is yank rate (warp 7.5)
+				ictbeam = 1
+				p_Skip(1)
+				p_Proutn("~y~***~w~")
+				p_Crmship()
+				p_Prout(" caught in long range tractor beam--")
+				; if Kirk & Co. screwing around on planet, handle
+				p_Atover(1)   ; atover(1) is Grab
+				If a.alldone <> 0
+					Return
+				EndIf
+				If a.icraft = 1
+					; caught in Galileo?
+					p_Finish(FSTRACTOR)
+					Return
+				EndIf
+				; check to see if shuttle is aboard
+				If a.iscraft = 0
+					p_Skip(1)
+					If p_Rand() > 0.5
+						p_Prout("Galileo, left on the planet surface, is captured")
+						p_Prout("by aliens and made into a flying McDonald's.")
+						damage[DSHUTTL] = -10
+						a.iscraft = -1
+					Else
+						p_Prout("Galileo, left on the planet surface, is well hidden.")
+					EndIf
+				EndIf
+				If evline = FSPY
+					a.quadx = d.isx
+					a.quady = d.isy
+				Else
+					a.quadx = d.cx[i]
+					a.quady = d.cy[i]
+				EndIf
+				a.sectx, a.secty = p_Iran10()
+				p_Crmship()
+				p_Proutn(" is pulled to")
+				p_Cramlc(1, a.quadx, a.quady)
+				p_Proutn(", ")
+				p_Cramlc(2, a.sectx, a.secty)
+				p_Skip(1)
+				If a.resting <> 0
+					p_Prout("(Remainder of rest/repair period cancelled.)")
+					a.resting = 0
+				EndIf
+				If a.shldup = 0
+					If (damage[DSHIELD] = 0) And (a.shield > 0)
+						p_Sheild(2)   ; shields up
+						a.shldchg = 0
+					Else
+						p_Prout("(Shields not currently useable.)")
+					EndIf
+				EndIf
+				p_Newqad(0)
+				; adjust finish time to time of tractor beaming
+				fintim = d.date + a.time
+				If d.remcom <= 0
+					future[FTBEAM] = INF
+				Else
+					future[FTBEAM] = d.date + a.time + p_Expran(1.5 * a.intime / d.remcom)
+				EndIf
+			EndIf
+
+		ElseIf evline = FSNAP
+			; snapshot of the universe (for time warp)
+			snapsht = p_DeepCopy(d)
+			d.snap = 1
+			future[FSNAP] = d.date + p_Expran(0.5 * a.intime)
+
+		ElseIf evline = FBATTAK
+			; commander attacks starbase
+			If (d.remcom = 0) Or (d.rembase = 0)
+				; no can do
+				future[FBATTAK] = INF
+				future[FCDBAS] = INF
+			Else
+				found = 0
+				For j = 1 To d.rembase
+					For k = 1 To d.remcom
+						If found = 0
+							If (d.baseqx[j] = d.cx[k]) And (d.baseqy[j] = d.cy[k]) And ((d.baseqx[j] <> a.quadx) Or (d.baseqy[j] <> a.quady)) And ((d.baseqx[j] <> d.isx) Or (d.baseqy[j] <> d.isy))
+								found = j
+							EndIf
+						EndIf
+					Next
+				Next
+				If found = 0
+					; no match found -- try later
+					future[FBATTAK] = d.date + p_Expran(0.3 * a.intime)
+					future[FCDBAS] = INF
+				Else
+					; commander + starbase combination found -- launch attack
+					j = found
+					a.batx = d.baseqx[j]
+					a.baty = d.baseqy[j]
+					future[FCDBAS] = d.date + 1.0 + 3.0 * p_Rand()
+					If a.isatb <> 0
+						; extra time if SC already attacking
+						future[FCDBAS] = future[FCDBAS] + future[FSCDBAS] - d.date
+					EndIf
+					future[FBATTAK] = future[FCDBAS] + p_Expran(0.3 * a.intime)
+					a.iseenit = 0
+					If p_Reports()
+						a.iseenit = 1
+						If ipage = 0
+							p_Pause(1)
+						EndIf
+						ipage = 1
+						p_Skip(1)
+						p_Proutn("~r~Lt. Uhura~w~-  \"Captain, the starbase in")
+						p_Cramlc(1, a.batx, a.baty)
+						p_Skip(1)
+						p_Prout("   reports that it is under atttack and that it can")
+						p_Proutn("   hold out only until stardate ")
+						p_Cramf(future[FCDBAS], 1, 1)
+						p_Prout(".\"")
+						If a.resting <> 0
+							p_Skip(1)
+							p_Proutn("Mr. Spock-  \"Captain, shall we cancel the rest period?\"")
+							If p_Ja()
+								a.resting = 0
+								a.time = 0.0
+								Return
+							EndIf
+						EndIf
+					EndIf
+				EndIf
+			EndIf
+
+		ElseIf (evline = FSCDBAS) Or (evline = FCDBAS)
+			dokill = True
+			If evline = FSCDBAS
+				; supercommander destroys base
+				future[FSCDBAS] = INF
+				a.isatb = 2
+				If p_Mod(d.galaxy[d.isx][d.isy], 100) < 10
+					dokill = False
+				Else
+					ixhold = a.batx
+					iyhold = a.baty
+					a.batx = d.isx
+					a.baty = d.isy
+				EndIf
+			Else
+				; commander succeeds in destroying base
+				future[FCDBAS] = INF
+				; find the lucky pair
+				found = 0
+				For i = 1 To d.remcom
+					If (d.cx[i] = a.batx) And (d.cy[i] = a.baty)
+						found = i
+					EndIf
+				Next
+				If (found = 0) Or (d.rembase = 0) Or (p_Mod(d.galaxy[a.batx][a.baty], 100) < 10)
+					; no action to take after all
+					a.batx = 0
+					a.baty = 0
+					dokill = False
+				EndIf
+			EndIf
+			If dokill
+				; code merges here for any commander destroying base
+				If starch[a.batx][a.baty] = -1
+					starch[a.batx][a.baty] = 0
+				EndIf
+				; handle case where base is in same quadrant as starship
+				If (a.batx = a.quadx) And (a.baty = a.quady)
+					If starch[a.batx][a.baty] > 999
+						starch[a.batx][a.baty] = starch[a.batx][a.baty] - 10
+					EndIf
+					If a.basex <> 0
+						p_FxBoom(a.basex, a.basey)
+						quad[a.basex][a.basey] = IHDOT
+					EndIf
+					a.basex = 0
+					a.basey = 0
+					p_Newcnd()
+					p_Skip(1)
+					p_Prout("~b~Spock~w~-  \"Captain, I believe the starbase has been destroyed.\"")
+				ElseIf (d.rembase <> 1) And p_Reports()
+					; get word via subspace radio
+					If ipage = 0
+						p_Pause(1)
+					EndIf
+					ipage = 1
+					p_Skip(1)
+					p_Prout("~r~Lt. Uhura~w~-  \"Captain, Starfleet Command reports that")
+					p_Proutn("   the starbase in")
+					p_Cramlc(1, a.batx, a.baty)
+					p_Prout(" has been destroyed by")
+					If a.isatb = 2
+						p_Prout("the Klingon Super-Commander")
+					Else
+						p_Prout("a Klingon Commander")
+					EndIf
+				EndIf
+				; remove starbase from galaxy
+				d.galaxy[a.batx][a.baty] = d.galaxy[a.batx][a.baty] - 10
+				For i = 1 To d.rembase
+					If (d.baseqx[i] = a.batx) And (d.baseqy[i] = a.baty)
+						d.baseqx[i] = d.baseqx[d.rembase]
+						d.baseqy[i] = d.baseqy[d.rembase]
+					EndIf
+				Next
+				d.rembase = d.rembase - 1
+				If a.isatb = 2
+					; reinstate a commander's base attack
+					a.batx = ixhold
+					a.baty = iyhold
+					a.isatb = 0
+				Else
+					a.batx = 0
+					a.baty = 0
+				EndIf
+			EndIf
+
+		ElseIf evline = FSCMOVE
+			; supercommander moves
+			future[FSCMOVE] = d.date + 0.2777
+			If (a.ientesc + istract = 0) And (a.isatb <> 1) And ((a.iscate <> 1) Or (a.justin = 1))
+				ipage = p_Scom(ipage)
+			EndIf
+
+		ElseIf evline = FDSPROB
+			; move deep space probe
+			future[FDSPROB] = d.date + 0.01
+			a.probex = a.probex + a.probeinx
+			a.probey = a.probey + a.probeiny
+			i = Int(a.probex / 10 + 0.05)
+			j = Int(a.probey / 10 + 0.05)
+			dokill = False   ; reused as "probe finished" flag
+			If (a.probecx <> i) Or (a.probecy <> j)
+				a.probecx = i
+				a.probecy = j
+				If (i < 1) Or (i > 8) Or (j < 1) Or (j > 8)
+					dokill = True
+				ElseIf d.galaxy[a.probecx][a.probecy] = 1000
+					dokill = True
+				EndIf
+				If dokill
+					; left galaxy or ran into supernova
+					If p_Reports()
+						If ipage = 0
+							p_Pause(1)
+						EndIf
+						ipage = 1
+						p_Skip(1)
+						p_Proutn("~r~Lt. Uhura~w~-  \"The deep space probe ")
+						If (i < 1) Or (i > 8) Or (j < 1) Or (j > 8)
+							p_Proutn("has left the galaxy")
+						Else
+							p_Proutn("is no longer transmitting")
+						EndIf
+						p_Prout(".\"")
+					EndIf
+					future[FDSPROB] = INF
+				ElseIf p_Reports()
+					If ipage = 0
+						p_Pause(1)
+					EndIf
+					ipage = 1
+					p_Skip(1)
+					p_Proutn("~r~Lt. Uhura~w~-  \"The deep space probe is now in ")
+					p_Cramlc(1, a.probecx, a.probecy)
+					p_Prout(".\"")
+				EndIf
+			EndIf
+			If dokill = False
+				; update star chart if radio is working or have access to radio
+				If p_Reports()
+					If damage[DRADIO] > 0.0
+						starch[a.probecx][a.probecy] = d.galaxy[a.probecx][a.probecy] + 1000
+					Else
+						starch[a.probecx][a.probecy] = 1
+					EndIf
+				EndIf
+				a.proben = a.proben - 1   ; one less to travel
+				If (a.proben = 0) And (a.isarmed <> 0) And (p_Mod(d.galaxy[a.probecx][a.probecy], 10) > 0)
+					; let's blow the sucker!
+					p_Snova(1, 0)
+					future[FDSPROB] = INF
+					If d.galaxy[a.quadx][a.quady] = 1000
+						Return
+					EndIf
+				EndIf
+			EndIf
+		EndIf
+	Forever
+EndFunction
+
+Function p_Waiting()
+	Local key, temp, delay, origtime, rtime
+
+	a.ididit = 0
+	key = p_Scan()
+	While key = IHEOL
+		p_Proutn("How long? ")
+		key = p_Scan()
+	Wend
+	p_Chew()
+	If key <> IHREAL
+		p_Huh()
+		Return
+	EndIf
+	delay = aaitem
+	origtime = delay
+	If delay <= 0.0
+		Return
+	EndIf
+	If (delay >= d.remtime) Or (a.nenhere <> 0)
+		p_Prout("Are you sure? ")
+		If p_Ja() = False
+			Return
+		EndIf
+	EndIf
+
+	; alternate resting periods (events) with attacks
+	a.resting = 1
+	Repeat
+		If delay <= 0
+			a.resting = 0
+		EndIf
+		If a.resting = 0
+			p_Cramf(d.remtime, 0, 2)
+			p_Prout(" stardates left.")
+			Return
+		EndIf
+		temp = delay
+		a.time = delay
+
+		If a.nenhere <> 0
+			rtime = 1.0 + p_Rand()
+			If rtime < temp
+				temp = rtime
+			EndIf
+			a.time = temp
+		EndIf
+		If a.time < delay
+			p_Attack(0)
+		EndIf
+		If a.nenhere = 0
+			p_Movetho()
+		EndIf
+		If a.alldone <> 0
+			Return
+		EndIf
+		p_Events()
+		a.ididit = 1
+		If a.alldone <> 0
+			Return
+		EndIf
+		delay = delay - temp
+		p_Redraw()
+	Until d.galaxy[a.quadx][a.quady] = 1000   ; leave if quadrant supernovas
+
+	a.resting = 0
+	a.time = 0
+EndFunction
+
+Function p_Nova(ix, iy)
+	Local course = {0.0, 10.5, 12.0, 1.5, 9.0, 0.0, 3.0, 7.5, 6.0, 4.5}
+	Local bot, top, top2, kount, icx, icy, mm, nn, j, iquad, iquad1, i, ll, newcx, newcy, ii, jj
+	Local hx = {}
+	Local hy = {}
+	Local finished, found, diff
+
+	If p_Rand() < 0.05
+		; wow! we've supernova'ed
+		p_Snova(ix, iy)
+		Return
+	EndIf
+
+	; handle initial nova
+	p_FxBoom(ix, iy)
+	quad[ix][iy] = IHDOT
+	p_Crmena(1, IHSTAR, 2, ix, iy)
+	p_Prout(" novas.")
+	d.galaxy[a.quadx][a.quady] = d.galaxy[a.quadx][a.quady] - 1
+	d.starkl = d.starkl + 1
+
+	; set up stack to recursively trigger adjacent stars
+	bot = 1
+	top = 1
+	top2 = 1
+	kount = 0
+	icx = 0
+	icy = 0
+	hx[1] = ix
+	hy[1] = iy
+	finished = False
+	While finished = False
+		For mm = bot To top
+			For nn = 1 To 3
+				; nn, j represent coordinates around current
+				For j = 1 To 3
+					If (j <> 2) Or (nn <> 2)
+						ii = hx[mm] + nn - 2
+						jj = hy[mm] + j - 2
+						If (ii >= 1) And (ii <= 10) And (jj >= 1) And (jj <= 10)
+							iquad = quad[ii][jj]
+							If iquad = IHSTAR
+								; affect another star
+								If p_Rand() < 0.05
+									; this star supernovas
+									p_Snova(ii, jj)
+									Return
+								EndIf
+								top2 = top2 + 1
+								hx[top2] = ii
+								hy[top2] = jj
+								d.galaxy[a.quadx][a.quady] = d.galaxy[a.quadx][a.quady] - 1
+								d.starkl = d.starkl + 1
+								p_FxBoom(ii, jj)
+								p_Crmena(1, IHSTAR, 2, ii, jj)
+								p_Prout(" ~r~novas~w~.")
+								quad[ii][jj] = IHDOT
+							ElseIf iquad = IHP
+								; destroy planet
+								d.newstuf[a.quadx][a.quady] = d.newstuf[a.quadx][a.quady] - 1
+								d.nplankl = d.nplankl + 1
+								p_FxBoom(ii, jj)
+								p_Crmena(1, IHP, 2, ii, jj)
+								p_Prout(" ~r~destroyed~w~.")
+								d.plnets[a.iplnet] = p_NulPlanet()
+								a.iplnet = 0
+								a.plnetx = 0
+								a.plnety = 0
+								If a.landed = 1
+									p_Finish(FPNOVA)
+									Return
+								EndIf
+								quad[ii][jj] = IHDOT
+							ElseIf iquad = IHB
+								; destroy base
+								d.galaxy[a.quadx][a.quady] = d.galaxy[a.quadx][a.quady] - 10
+								found = 0
+								For i = d.rembase To 1 Step -1
+									If (d.baseqx[i] = a.quadx) And (d.baseqy[i] = a.quady)
+										found = i
+									EndIf
+								Next
+								If found > 0
+									d.baseqx[found] = d.baseqx[d.rembase]
+									d.baseqy[found] = d.baseqy[d.rembase]
+								EndIf
+								d.rembase = d.rembase - 1
+								a.basex = 0
+								a.basey = 0
+								d.basekl = d.basekl + 1
+								p_Newcnd()
+								p_FxBoom(ii, jj)
+								p_Crmena(1, IHB, 2, ii, jj)
+								p_Prout(" ~r~destroyed~w~.")
+								quad[ii][jj] = IHDOT
+							ElseIf (iquad = IHE) Or (iquad = IHF)
+								; buffet ship
+								p_Prout("~y~***Starship buffeted by nova~w~.")
+								If a.shldup <> 0
+									If a.shield >= 2000.0
+										a.shield = a.shield - 2000.0
+									Else
+										diff = 2000.0 - a.shield
+										a.energy = a.energy - diff
+										a.shield = 0.0
+										a.shldup = 0
+										p_Prout("***Shields knocked out.")
+										damage[DSHIELD] = damage[DSHIELD] + 0.005 * a.damfac * p_Rand() * diff
+									EndIf
+								Else
+									a.energy = a.energy - 2000.0
+								EndIf
+								If a.energy <= 0
+									p_Finish(FNOVA)
+									Return
+								EndIf
+								; add in course nova contributes to kicking starship
+								icx = icx + a.sectx - hx[mm]
+								icy = icy + a.secty - hy[mm]
+								kount = kount + 1
+							ElseIf iquad = IHK
+								; kill klingon
+								p_Deadkl(ii, jj, iquad, ii, jj)
+							ElseIf (iquad = IHC) Or (iquad = IHS) Or (iquad = IHR)
+								; damage/destroy big enemies
+								ll = a.nenhere + 1
+								For i = a.nenhere To 1 Step -1
+									If (kx[i] = ii) And (ky[i] = jj)
+										ll = i
+									EndIf
+								Next
+								kpower[ll] = kpower[ll] - 800.0   ; if firepower is lost, die
+								If kpower[ll] <= 0.0
+									p_Deadkl(ii, jj, iquad, ii, jj)
+								Else
+									newcx = ii + ii - hx[mm]
+									newcy = jj + jj - hy[mm]
+									p_Crmena(1, iquad, 2, ii, jj)
+									p_Proutn(" ~r~damaged~w~")
+									If (newcx < 1) Or (newcx > 10) Or (newcy < 1) Or (newcy > 10)
+										; can't leave quadrant
+										p_Skip(1)
+									Else
+										iquad1 = quad[newcx][newcy]
+										If iquad1 = IHBLANK
+											p_Proutn(", blasted into ")
+											p_Crmena(0, IHBLANK, 2, newcx, newcy)
+											p_Skip(1)
+											p_Deadkl(ii, jj, iquad, newcx, newcy)
+										ElseIf iquad1 <> IHDOT
+											; can't move into something else
+											p_Skip(1)
+										Else
+											p_Proutn(", buffeted to")
+											p_Cramlc(2, newcx, newcy)
+											quad[ii][jj] = IHDOT
+											quad[newcx][newcy] = iquad
+											kx[ll] = newcx
+											ky[ll] = newcy
+											kavgd[ll] = Sqrt(p_Sq(a.sectx - newcx) + p_Sq(a.secty - newcy))
+											kdist[ll] = kavgd[ll]
+											p_Skip(1)
+										EndIf
+									EndIf
+								EndIf
+							EndIf
+						EndIf
+					EndIf
+				Next
+			Next
+		Next
+		If top = top2
+			finished = True
+		Else
+			bot = top + 1
+			top = top2
+		EndIf
+	Wend
+	If kount = 0
+		Return
+	EndIf
+
+	; starship affected by nova -- kick it away
+	a.dist = kount * 0.1
+	If icx <> 0
+		If icx < 0
+			icx = -1
+		Else
+			icx = 1
+		EndIf
+	EndIf
+	If icy <> 0
+		If icy < 0
+			icy = -1
+		Else
+			icy = 1
+		EndIf
+	EndIf
+	a.direc = course[3 * (icx + 1) + icy + 2]
+	If a.direc = 0.0
+		a.dist = 0.0
+	EndIf
+	If a.dist = 0.0
+		Return
+	EndIf
+	a.time = 10.0 * a.dist / 16.0
+	p_Skip(1)
+	p_Prout("Force of nova displaces starship.")
+	a.iattak = 2   ; eliminates recursion problem
+	p_Lmove()
+	a.time = 10.0 * a.dist / 16.0
+EndFunction
+
+Function p_Snova(insx, insy)
+	Local comdead, nqx, nqy, nsx, nsy, num, kldead, iscdead, nrmdead, npdead
+	Local insipient = 0
+	Local stars, found, i, j, l, maxloop
+
+	nsx = insx
+	nsy = insy
+	nqx = a.quadx
+	nqy = a.quady
+
+	If insy = 0
+		If insx = 1
+			; NOVAMAX being used
+			nqx = a.probecx
+			nqy = a.probecy
+		Else
+			stars = 0
+			; scheduled supernova -- select star
+			; logic changed here so that we won't favor quadrants in top
+			; left of universe
+			For i = 1 To 8
+				For j = 1 To 8
+					stars = stars + p_Mod(d.galaxy[i][j], 10)
+				Next
+			Next
+			If stars = 0
+				Return   ; nothing to supernova exists
+			EndIf
+			num = Int(p_Rand() * stars + 1)
+			found = False
+			For i = 1 To 8
+				For j = 1 To 8
+					If found = False
+						num = num - p_Mod(d.galaxy[i][j], 10)
+						If num <= 0
+							found = True
+							nqx = i
+							nqy = j
+						EndIf
+					EndIf
+				Next
+			Next
+		EndIf
+
+		If (nqx <> a.quadx) Or (nqy <> a.quady) Or (a.justin <> 0)
+			; it isn't here, or we just entered (treat as inroute)
+			If p_Reports()
+				p_Skip(1)
+				p_Proutn("Message from Starfleet Command       Stardate ")
+				p_Cramf(d.date, 0, 1)
+				p_Skip(1)
+				p_Proutn("     Supernova in")
+				p_Cramlc(1, nqx, nqy)
+				p_Prout("; caution advised.")
+			EndIf
+		Else
+			; we are in the quadrant!
+			insipient = 1
+			num = Int(p_Rand() * p_Mod(d.galaxy[nqx][nqy], 10) + 1)
+			found = False
+			For i = 1 To 9
+				For j = 1 To 9
+					If found = False
+						If quad[i][j] = IHSTAR
+							num = num - 1
+							If num = 0
+								found = True
+								nsx = i
+								nsy = j
+							EndIf
+						EndIf
+					EndIf
+				Next
+			Next
+			If found = False
+				nsx = 10
+				nsy = 10
+			EndIf
+		EndIf
+	Else
+		insipient = 1
+	EndIf
+
+	If insipient <> 0
+		p_Skip(1)
+		p_Prouts("~r~***RED ALERT!  RED ALERT!")
+		p_Skip(1)
+		p_Proutn("~y~***Incipient supernova detected at~w~")
+		p_Cramlc(2, nsx, nsy)
+		p_Skip(1)
+		p_FxBoom(nsx, nsy)
+		nqx = a.quadx
+		nqy = a.quady
+		If p_Sq(nsx - a.sectx) + p_Sq(nsy - a.secty) <= 2.1
+			p_Proutn("Emergency override attempts t")
+			p_Prouts("***************")
+			p_Skip(1)
+			p_Stars()
+			a.alldone = 1
+		EndIf
+	EndIf
+	; destroy any Klingons in supernovaed quadrant
+	num = d.galaxy[nqx][nqy]
+	kldead = Int(num / 100)
+	d.remkl = d.remkl - kldead   ; moved here to correctly set remaining Klingon count
+	comdead = 0
+	iscdead = 0
+	If (nqx = d.isx) And (nqy = d.isy)
+		; did in the Supercommander!
+		d.nscrem = 0
+		d.isx = 0
+		d.isy = 0
+		a.isatb = 0
+		a.iscate = 0
+		iscdead = 1
+		kldead = kldead - 1   ; get proper kill credit
+		future[FSCMOVE] = INF
+		future[FSCDBAS] = INF
+	EndIf
+
+	If d.remcom <> 0
+		maxloop = d.remcom
+		found = False
+		For l = 1 To maxloop
+			If (found = False) And (d.cx[l] = nqx) And (d.cy[l] = nqy)
+				d.cx[l] = d.cx[d.remcom]
+				d.cy[l] = d.cy[d.remcom]
+				d.cx[d.remcom] = 0
+				d.cy[d.remcom] = 0
+				d.remcom = d.remcom - 1
+				kldead = kldead - 1
+				comdead = comdead + 1
+				If d.remcom = 0
+					future[FTBEAM] = INF
+				EndIf
+				found = True
+			EndIf
+		Next
+	EndIf
+	; destroy Romulans and planets in supernovaed quadrant
+	num = d.newstuf[nqx][nqy]
+	d.newstuf[nqx][nqy] = 0
+	nrmdead = Int(num / 10)
+	d.nromrem = d.nromrem - nrmdead
+	npdead = num - nrmdead * 10
+	If npdead <> 0
+		For l = 1 To a.inplan
+			If (d.plnets[l].x = nqx) And (d.plnets[l].y = nqy)
+				d.plnets[l] = p_NulPlanet()
+			EndIf
+		Next
+	EndIf
+	; destroy any base in supernovaed quadrant
+	If d.rembase <> 0
+		maxloop = d.rembase
+		found = False
+		For l = 1 To maxloop
+			If (found = False) And (d.baseqx[l] = nqx) And (d.baseqy[l] = nqy)
+				d.baseqx[l] = d.baseqx[d.rembase]
+				d.baseqy[l] = d.baseqy[d.rembase]
+				d.baseqx[d.rembase] = 0
+				d.baseqy[d.rembase] = 0
+				d.rembase = d.rembase - 1
+				found = True
+			EndIf
+		Next
+	EndIf
+	; if starship caused supernova, tally up destruction
+	If insx <> 0
+		num = p_Mod(d.galaxy[nqx][nqy], 100)
+		d.starkl = d.starkl + p_Mod(num, 10)
+		d.basekl = d.basekl + Int(num / 10)
+		d.killk = d.killk + kldead
+		d.killc = d.killc + comdead
+		d.nromkl = d.nromkl + nrmdead
+		d.nplankl = d.nplankl + npdead
+		d.nsckill = d.nsckill + iscdead
+	EndIf
+	; mark supernova in galaxy and in star chart
+	If ((a.quadx = nqx) And (a.quady = nqy)) Or p_Reports()
+		starch[nqx][nqy] = 1
+	EndIf
+	d.galaxy[nqx][nqy] = 1000
+	; if supernova destroys last klingons give special message
+	If (d.remkl = 0) And ((nqx <> a.quadx) Or (nqy <> a.quady))
+		p_Skip(2)
+		If insx = 0
+			p_Prout("Lucky you!")
+		EndIf
+		p_Proutn("A supernova in")
+		p_Cramlc(1, nqx, nqy)
+		p_Prout(" has just destroyed the last Klingons.")
+		p_Finish(FWON)
+		Return
+	EndIf
+	; if some Klingons remain, continue or die in supernova
+	If a.alldone <> 0
+		p_Finish(FSNOVAED)
+	EndIf
+EndFunction

@@ -1,0 +1,960 @@
+/*
+** gfx.hws -- Super Star Trek for Hollywood
+**
+** Screen layout, drawing of the bridge display, the event
+** handlers (keyboard / mouse) and the visual effects.
+*/
+
+; ---------------- layout ----------------
+SCR_W = 1024
+SCR_H = 768
+
+; short range scan grid (10 x 10)
+GX = 40
+GY = 64
+CS = 37
+
+; galaxy chart (8 x 8)
+QX = 722
+QY = 68
+QW = 35
+QH = 25
+
+; console
+LOGX = 16
+LOGY = 456
+LOGLH = 15
+
+; colours
+COL_BG = $000000
+COL_PANEL = $0A0E18
+COL_EDGE = $2A3A5C
+COL_TITLE = $FFB040
+COL_LABEL = $7F8FB0
+COL_TEXT = $C8C8C8
+COL_GRID = $121A2C
+
+g_ingame = False
+g_fx = Nil
+g_trail = {}
+g_trailn = 0
+g_bgstars = {}
+g_buttons = {}
+g_nbuttons = 0
+g_frame = 0
+g_cw = 8
+g_cwc = 7
+
+FONT_LOG = 1
+FONT_UI = 2
+FONT_SMALL = 3
+FONT_BIG = 4
+FONT_CHART = 5
+
+Function p_AddButton(txt, cmd, col, row)
+	g_buttons[g_nbuttons] = {txt = txt, cmd = cmd,
+		x = 700 + col * 79, y = 312 + row * 22, w = 76, h = 20}
+	g_nbuttons = g_nbuttons + 1
+EndFunction
+
+Function p_InitGfx()
+	Local i
+	EscapeQuit(False)
+	OpenFont(FONT_LOG, #MONOSPACE, 13)
+	OpenFont(FONT_UI, #SANS, 13)
+	OpenFont(FONT_SMALL, #SANS, 11)
+	OpenFont(FONT_BIG, #SANS, 30)
+	OpenFont(FONT_CHART, #MONOSPACE, 12)
+	UseFont(FONT_LOG)
+	; average advance of the monospace font (may be fractional)
+	g_cw = TextWidth("MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM") / 50
+	g_rows = Int((SCR_H - LOGY - 12) / LOGLH)
+
+	For i = 0 To 89
+		g_bgstars[i] = {x = Rnd(CS * 10), y = Rnd(CS * 10), c = Rnd(3)}
+	Next
+
+	p_AddButton("SRSCAN", "srscan", 0, 0)
+	p_AddButton("LRSCAN", "lrscan", 1, 0)
+	p_AddButton("CHART", "chart", 2, 0)
+	p_AddButton("STATUS", "status", 3, 0)
+	p_AddButton("PHASERS", "phasers", 0, 1)
+	p_AddButton("PHOTONS", "photons", 1, 1)
+	p_AddButton("SHIELDS", "shields", 2, 1)
+	p_AddButton("DOCK", "dock", 3, 1)
+	p_AddButton("MOVE", "move", 0, 2)
+	p_AddButton("IMPULSE", "impulse", 1, 2)
+	p_AddButton("WARP", "warp", 2, 2)
+	p_AddButton("REST", "rest", 3, 2)
+	p_AddButton("DAMAGES", "damages", 0, 3)
+	p_AddButton("REPORT", "report", 1, 3)
+	p_AddButton("COMPUTER", "computer", 2, 3)
+	p_AddButton("SCORE", "score", 3, 3)
+	p_AddButton("PROBE", "probe", 0, 4)
+	p_AddButton("CLOAK", "cloak", 1, 4)
+	p_AddButton("CAPTURE", "capture", 2, 4)
+	p_AddButton("CALL", "call", 3, 4)
+	p_AddButton("ORBIT", "orbit", 0, 5)
+	p_AddButton("SENSORS", "sensors", 1, 5)
+	p_AddButton("TRANSPORT", "transport", 2, 5)
+	p_AddButton("HELP", "help", 3, 5)
+
+	InstallEventHandler({OnKeyDown = p_OnKeyDown, VanillaKey = p_OnVanilla,
+		OnMouseDown = p_OnMouseDown, OnWheelUp = p_OnWheelUp,
+		OnWheelDown = p_OnWheelDown})
+
+	BeginDoubleBuffer()
+EndFunction
+
+; ---------------- primitive helpers ----------------
+
+Function p_Rect(x, y, w, h, col)
+	SetFillStyle(#FILLCOLOR)
+	Box(x, y, w, h, col)
+EndFunction
+
+Function p_Frame(x, y, w, h, col)
+	SetFillStyle(#FILLNONE)
+	Box(x, y, w, h, col)
+	SetFillStyle(#FILLCOLOR)
+EndFunction
+
+Function p_Disc(cx, cy, r, col)
+	SetFillStyle(#FILLCOLOR)
+	Circle(cx - r, cy - r, r, col)
+EndFunction
+
+Function p_Ring(cx, cy, r, col)
+	SetFillStyle(#FILLNONE)
+	Circle(cx - r, cy - r, r, col)
+	SetFillStyle(#FILLCOLOR)
+EndFunction
+
+Function p_Oval(cx, cy, rx, ry, col)
+	SetFillStyle(#FILLCOLOR)
+	Ellipse(cx - rx, cy - ry, rx, ry, col)
+EndFunction
+
+; closed polygon from a flat list of points relative to (cx, cy)
+Function p_Poly(cx, cy, pts, col)
+	Local v = {}
+	Local n = ListItems(pts)
+	Local i
+	For i = 0 To n - 1
+		v[i] = pts[i]
+	Next
+	v[n] = pts[0]
+	v[n + 1] = pts[1]
+	SetFillStyle(#FILLCOLOR)
+	Polygon(cx, cy, v, n / 2 + 1, col)
+EndFunction
+
+Function p_Text(fid, x, y, s, col)
+	UseFont(fid)
+	SetFontStyle(#ANTIALIAS)
+	SetFontColor(col)
+	TextOut(x, y, ReplaceStr(s, "[", "[["))
+EndFunction
+
+Function p_CodeColor(code, cur)
+	If code = "r"
+		Return($FF5A5A)
+	ElseIf code = "g"
+		Return($5AE65A)
+	ElseIf code = "y"
+		Return($FFE35A)
+	ElseIf code = "b"
+		Return($6AA8FF)
+	ElseIf code = "m"
+		Return($E070F0)
+	ElseIf code = "c"
+		Return($60E0E8)
+	ElseIf code = "w"
+		Return(COL_TEXT)
+	ElseIf code = "B"
+		Return($FFFFFF)
+	ElseIf code = "n"
+		Return(COL_TEXT)
+	EndIf
+	Return(cur)
+EndFunction
+
+; draws a line with ~x~ colour markup in the log font
+Function p_DrawMarkup(x, y, s)
+	Local n, i, seg, ch, col
+	UseFont(FONT_LOG)
+	SetFontStyle(#ANTIALIAS)
+	col = COL_TEXT
+	seg = ""
+	n = StrLen(s)
+	i = 0
+	While i < n
+		ch = MidStr(s, i, 1)
+		If (ch = "~") And (i + 2 < n)
+			If MidStr(s, i + 2, 1) = "~"
+				If seg <> ""
+					SetFontColor(col)
+					TextOut(x, y, ReplaceStr(seg, "[", "[["))
+					x = x + StrLen(seg) * g_cw
+					seg = ""
+				EndIf
+				col = p_CodeColor(MidStr(s, i + 1, 1), col)
+				i = i + 3
+			Else
+				seg = seg .. ch
+				i = i + 1
+			EndIf
+		Else
+			seg = seg .. ch
+			i = i + 1
+		EndIf
+	Wend
+	If seg <> ""
+		SetFontColor(col)
+		TextOut(x, y, ReplaceStr(seg, "[", "[["))
+	EndIf
+EndFunction
+
+Function p_Panel(x, y, w, h, title)
+	p_Rect(x, y, w, h, COL_PANEL)
+	p_Frame(x, y, w, h, COL_EDGE)
+	p_Rect(x + 1, y + 1, w - 2, 16, $16223A)
+	p_Text(FONT_SMALL, x + 6, y + 2, title, COL_TITLE)
+EndFunction
+
+Function p_Bar(x, y, w, h, frac, col)
+	If frac < 0
+		frac = 0
+	EndIf
+	If frac > 1
+		frac = 1
+	EndIf
+	p_Rect(x, y, w, h, $1A2030)
+	If Int(w * frac) > 0
+		p_Rect(x, y, Int(w * frac), h, col)
+	EndIf
+	p_Frame(x, y, w, h, $3A4A6A)
+EndFunction
+
+; ---------------- sprites ----------------
+; (cx, cy) is the cell centre
+
+Function p_DrawStarship(cx, cy, hull, trim)
+	; nacelles
+	p_Rect(cx + 1, cy - 10, 14, 4, hull)
+	p_Rect(cx + 1, cy + 7, 14, 4, hull)
+	p_Disc(cx + 2, cy - 8, 2, $FF4030)
+	p_Disc(cx + 2, cy + 9, 2, $FF4030)
+	p_Rect(cx + 13, cy - 10, 2, 4, $60A0FF)
+	p_Rect(cx + 13, cy + 7, 2, 4, $60A0FF)
+	; pylons
+	Line(cx + 6, cy, cx + 8, cy - 7, hull)
+	Line(cx + 6, cy, cx + 8, cy + 7, hull)
+	; secondary hull and neck
+	p_Oval(cx + 6, cy, 6, 3, hull)
+	p_Rect(cx - 3, cy - 1, 6, 3, hull)
+	; saucer
+	p_Disc(cx - 7, cy, 8, hull)
+	p_Ring(cx - 7, cy, 8, trim)
+	p_Disc(cx - 7, cy, 3, trim)
+EndFunction
+
+Function p_DrawKlingon(cx, cy, col, edge)
+	Local w = {0, 0, 11, -12, 14, -10, 7, 0, 14, 10, 11, 12}
+	p_Poly(cx, cy, w, col)
+	Line(cx - 9, cy, cx + 1, cy, col)
+	Line(cx - 9, cy - 1, cx + 1, cy - 1, col)
+	p_Disc(cx - 10, cy, 4, col)
+	p_Disc(cx + 3, cy, 4, edge)
+	p_Disc(cx - 10, cy, 1, $FFE060)
+EndFunction
+
+Function p_DrawRomulan(cx, cy)
+	Local w = {-12, 0, -2, -11, 12, -7, 4, 0, 12, 7, -2, 11}
+	p_Poly(cx, cy, w, $2E9A50)
+	p_Disc(cx - 2, cy, 5, $5CD080)
+	p_Disc(cx - 2, cy, 2, $C0FFD0)
+EndFunction
+
+Function p_DrawStar(cx, cy)
+	p_Disc(cx, cy, 11, $3A1C00)
+	p_Disc(cx, cy, 8, $8A4A00)
+	p_Disc(cx, cy, 6, $FFA020)
+	p_Disc(cx, cy, 4, $FFE060)
+	p_Disc(cx, cy, 2, $FFFFFF)
+EndFunction
+
+Function p_DrawPlanet(cx, cy)
+	Local pcls = 0
+	If (a.iplnet > 0) And (a.iplnet <= PLNETMAX)
+		pcls = d.plnets[a.iplnet].pclass
+	EndIf
+	If pcls = 1
+		p_Disc(cx, cy, 11, $2860B0)
+		p_Disc(cx - 3, cy - 2, 5, $3CA050)
+		p_Disc(cx + 4, cy + 4, 3, $3CA050)
+	ElseIf pcls = 2
+		p_Disc(cx, cy, 11, $8A5A30)
+		p_Disc(cx + 2, cy + 2, 6, $6A4020)
+	Else
+		p_Disc(cx, cy, 11, $A0B4C8)
+		p_Disc(cx - 2, cy + 1, 6, $D0E0F0)
+	EndIf
+	p_Ring(cx, cy, 11, $E0F0FF)
+EndFunction
+
+Function p_DrawBase(cx, cy)
+	p_Disc(cx, cy, 12, $103040)
+	p_Ring(cx, cy, 12, $40C0E0)
+	Line(cx - 12, cy, cx + 12, cy, $40C0E0)
+	Line(cx, cy - 12, cx, cy + 12, $40C0E0)
+	p_Rect(cx - 2, cy - 15, 5, 5, $80E0F0)
+	p_Rect(cx - 2, cy + 11, 5, 5, $80E0F0)
+	p_Rect(cx - 15, cy - 2, 5, 5, $80E0F0)
+	p_Rect(cx + 11, cy - 2, 5, 5, $80E0F0)
+	p_Disc(cx, cy, 5, $E0FFFF)
+EndFunction
+
+Function p_DrawBlackHole(cx, cy)
+	p_Disc(cx, cy, 12, $2A0E40)
+	p_Ring(cx, cy, 12, $7A40C0)
+	p_Disc(cx, cy, 8, $14061E)
+	p_Ring(cx, cy, 6, $5A2A90)
+	p_Disc(cx, cy, 5, $000000)
+EndFunction
+
+Function p_DrawTholian(cx, cy)
+	Local t = {0, -13, 12, 9, -12, 9}
+	p_Poly(cx, cy, t, $FF8C20)
+	Local t2 = {0, -6, 6, 5, -6, 5}
+	p_Poly(cx, cy, t2, $FFE070)
+EndFunction
+
+Function p_DrawWeb(x, y)
+	Local i
+	For i = 0 To 3
+		Line(x + 2, y + 3 + i * 10, x + CS - 3, y + 3 + i * 10, $3A70C8)
+		Line(x + 3 + i * 10, y + 2, x + 3 + i * 10, y + CS - 3, $3A70C8)
+	Next
+	Line(x + 2, y + 2, x + CS - 3, y + CS - 3, $5A90E8)
+	Line(x + CS - 3, y + 2, x + 2, y + CS - 3, $5A90E8)
+EndFunction
+
+Function p_DrawObject(ch, x, y)
+	Local cx = x + Int(CS / 2)
+	Local cy = y + Int(CS / 2)
+	If ch = "."
+		p_Disc(cx, cy, 1, $2A3450)
+	ElseIf ch = IHE
+		p_DrawStarship(cx, cy, $C8D4E0, $FFFFFF)
+	ElseIf ch = IHF
+		p_DrawStarship(cx, cy, $D8B050, $FFF0B0)
+	ElseIf ch = IHK
+		p_DrawKlingon(cx, cy, $B02828, $701818)
+	ElseIf ch = IHC
+		p_Ring(cx, cy, 16, $FF9030)
+		p_DrawKlingon(cx, cy, $E05A20, $902810)
+	ElseIf ch = IHS
+		p_Ring(cx, cy, 16, $FF60FF)
+		p_Ring(cx, cy, 14, $A030A0)
+		p_DrawKlingon(cx, cy, $C030C0, $701870)
+	ElseIf ch = IHR
+		p_DrawRomulan(cx, cy)
+	ElseIf ch = IHSTAR
+		p_DrawStar(cx, cy)
+	ElseIf ch = IHP
+		p_DrawPlanet(cx, cy)
+	ElseIf ch = IHB
+		p_DrawBase(cx, cy)
+	ElseIf ch = IHBLANK
+		p_DrawBlackHole(cx, cy)
+	ElseIf ch = IHT
+		p_DrawTholian(cx, cy)
+	ElseIf ch = IHWEB
+		p_DrawWeb(x, y)
+	ElseIf ch = IHQUEST
+		If p_Mod(g_frame, 2) = 0
+			p_Text(FONT_BIG, cx - 8, cy - 18, "?", $FF40FF)
+		Else
+			p_Text(FONT_BIG, cx - 8, cy - 18, "?", $40FFFF)
+		EndIf
+	EndIf
+EndFunction
+
+; ---------------- panels ----------------
+
+; screen centre of a sector given game coordinates (x = row, y = column)
+Function p_SectorXY(sx, sy)
+	Return(GX + (sy - 1) * CS + CS / 2, GY + (sx - 1) * CS + CS / 2)
+EndFunction
+
+Function p_DrawSRS()
+	Local i, j, x, y, ch, s, good, px, py
+	p_Panel(8, 32, 410, 418, "SHORT RANGE SCAN")
+	p_Rect(GX, GY, CS * 10, CS * 10, $03050C)
+	For i = 0 To 89
+		s = g_bgstars[i]
+		If s.c = 0
+			Plot(GX + s.x, GY + s.y, $3A4258)
+		ElseIf s.c = 1
+			Plot(GX + s.x, GY + s.y, $5A6480)
+		Else
+			Plot(GX + s.x, GY + s.y, $8890B0)
+		EndIf
+	Next
+	For i = 0 To 10
+		Line(GX + i * CS, GY, GX + i * CS, GY + CS * 10, COL_GRID)
+		Line(GX, GY + i * CS, GX + CS * 10, GY + i * CS, COL_GRID)
+	Next
+	For i = 1 To 10
+		p_Text(FONT_SMALL, GX + (i - 1) * CS + 14, GY - 15, p_Str(i), COL_LABEL)
+		p_Text(FONT_SMALL, GX - 20, GY + (i - 1) * CS + 12, p_PadL(p_Str(i), 2), COL_LABEL)
+	Next
+
+	If g_ingame = False
+		p_DrawTitle()
+		Return
+	EndIf
+
+	good = True
+	If (damage[DSRSENS] <> 0) And (a.condit <> IHDOCKED)
+		good = False
+	EndIf
+	For i = 1 To 10
+		For j = 1 To 10
+			x = GX + (j - 1) * CS
+			y = GY + (i - 1) * CS
+			If good Or ((Abs(i - a.sectx) <= 1) And (Abs(j - a.secty) <= 1))
+				ch = quad[i][j]
+				p_DrawObject(ch, x, y)
+			Else
+				p_Rect(x + 1, y + 1, CS - 1, CS - 1, $0C0C10)
+				p_Text(FONT_SMALL, x + 15, y + 11, "-", $404040)
+			EndIf
+		Next
+	Next
+	If good = False
+		p_Text(FONT_SMALL, GX + 4, GY + CS * 10 + 2, "SHORT-RANGE SENSORS DAMAGED", $FF5A5A)
+	Else
+		p_Text(FONT_SMALL, GX + 4, GY + CS * 10 + 2, "Click a sector to enter its coordinates", COL_LABEL)
+	EndIf
+
+	; effects overlay
+	If g_fx <> Nil
+		p_DrawFx()
+	EndIf
+EndFunction
+
+Function p_CenterText(fid, y, s, col)
+	UseFont(fid)
+	p_Text(fid, GX + Int((CS * 10 - TextWidth(s)) / 2), y, s, col)
+EndFunction
+
+Function p_DrawTitle()
+	Local cx = GX + CS * 5
+	p_Rect(GX + 20, GY + 62, CS * 10 - 40, 76, $05070F)
+	p_Frame(GX + 20, GY + 62, CS * 10 - 40, 76, COL_EDGE)
+	p_CenterText(FONT_BIG, GY + 70, "-SUPER- STAR TREK", COL_TITLE)
+	p_CenterText(FONT_UI, GY + 112, "Version 1.1.0  -  Hollywood edition", COL_TEXT)
+	p_DrawStarship(cx, GY + 200, $C8D4E0, $FFFFFF)
+	p_DrawKlingon(cx + 110, GY + 160, $B02828, $701818)
+	p_DrawKlingon(cx - 120, GY + 250, $B02828, $701818)
+	p_DrawStar(cx + 90, GY + 280)
+	p_DrawBase(cx - 100, GY + 150)
+	p_CenterText(FONT_SMALL, GY + 330, "Answer the questions in the console below to begin.", COL_LABEL)
+EndFunction
+
+Function p_CondColor()
+	If a.condit = IHRED
+		Return($FF3030)
+	ElseIf a.condit = IHYELLOW
+		Return($FFD020)
+	ElseIf a.condit = IHDOCKED
+		Return($40A0FF)
+	EndIf
+	Return($30D040)
+EndFunction
+
+Function p_DrawStatus()
+	Local x = 426
+	Local y = 32
+	Local yy, s, col, i, n
+	p_Panel(x, y, 266, 270, "SHIP STATUS")
+	If g_ingame = False
+		Return
+	EndIf
+	yy = y + 24
+	p_Text(FONT_UI, x + 8, yy, "Stardate", COL_LABEL)
+	p_Text(FONT_UI, x + 110, yy, p_FmtF(d.date, 0, 1), $FFFFFF)
+	yy = yy + 20
+	p_Text(FONT_UI, x + 8, yy, "Condition", COL_LABEL)
+	If a.condit = IHDOCKED
+		s = "DOCKED"
+	ElseIf a.condit = IHRED
+		s = "RED"
+	ElseIf a.condit = IHYELLOW
+		s = "YELLOW"
+	Else
+		s = "GREEN"
+	EndIf
+	col = p_CondColor()
+	If (a.condit = IHRED) And (p_Mod(g_frame, 2) = 1)
+		col = $901818
+	EndIf
+	p_Rect(x + 108, yy - 1, 70, 17, col)
+	p_Text(FONT_UI, x + 114, yy, s, $000000)
+	If a.iscloaked <> 0
+		p_Text(FONT_UI, x + 186, yy, "CLOAKED", $6AA8FF)
+	EndIf
+	yy = yy + 20
+	p_Text(FONT_UI, x + 8, yy, "Position", COL_LABEL)
+	p_Text(FONT_UI, x + 110, yy, "Q " .. a.quadx .. "-" .. a.quady .. "   S " .. a.sectx .. "-" .. a.secty, $FFFFFF)
+	yy = yy + 22
+	p_Text(FONT_UI, x + 8, yy, "Energy", COL_LABEL)
+	col = $40D060
+	If a.energy < 1000
+		col = $FFD020
+	EndIf
+	p_Bar(x + 110, yy + 2, 100, 11, a.energy / a.inenrg, col)
+	p_Text(FONT_SMALL, x + 214, yy + 1, p_FmtF(a.energy, 0, 0), $FFFFFF)
+	yy = yy + 20
+	p_Text(FONT_UI, x + 8, yy, "Shields", COL_LABEL)
+	If damage[DSHIELD] <> 0
+		s = "DAMAGED"
+		col = $FF5A5A
+	ElseIf a.shldup <> 0
+		s = "UP"
+		col = $5AE65A
+	Else
+		s = "DOWN"
+		col = $6AA8FF
+	EndIf
+	p_Bar(x + 110, yy + 2, 100, 11, a.shield / a.inshld, col)
+	p_Text(FONT_SMALL, x + 214, yy + 1, s, col)
+	yy = yy + 20
+	p_Text(FONT_UI, x + 8, yy, "Torpedoes", COL_LABEL)
+	n = a.torps
+	For i = 0 To n - 1
+		p_Rect(x + 110 + i * 9, yy + 3, 6, 10, $FF7030)
+	Next
+	If n = 0
+		p_Text(FONT_UI, x + 110, yy, "none", $FF5A5A)
+	EndIf
+	yy = yy + 20
+	p_Text(FONT_UI, x + 8, yy, "Warp factor", COL_LABEL)
+	p_Text(FONT_UI, x + 110, yy, p_FmtF(a.warpfac, 0, 1), $FFFFFF)
+	yy = yy + 20
+	p_Text(FONT_UI, x + 8, yy, "Life support", COL_LABEL)
+	If damage[DLIFSUP] <> 0
+		If a.condit = IHDOCKED
+			p_Text(FONT_UI, x + 110, yy, "DAMAGED (base)", $FF5A5A)
+		Else
+			p_Text(FONT_UI, x + 110, yy, "DAMAGED " .. p_FmtF(a.lsupres, 0, 2), $FF5A5A)
+		EndIf
+	Else
+		p_Text(FONT_UI, x + 110, yy, "ACTIVE", $5AE65A)
+	EndIf
+	yy = yy + 20
+	p_Text(FONT_UI, x + 8, yy, "Klingons left", COL_LABEL)
+	p_Text(FONT_UI, x + 110, yy, p_Str(d.remkl), $FF7070)
+	yy = yy + 20
+	p_Text(FONT_UI, x + 8, yy, "Time left", COL_LABEL)
+	col = $FFFFFF
+	If d.remtime < 3
+		col = $FFD020
+	EndIf
+	p_Text(FONT_UI, x + 110, yy, p_FmtF(d.remtime, 0, 2), col)
+	yy = yy + 20
+	p_Text(FONT_UI, x + 8, yy, "Probes", COL_LABEL)
+	p_Text(FONT_UI, x + 110, yy, p_Str(a.nprobes), $FFFFFF)
+EndFunction
+
+Function p_DrawDamage()
+	Local x = 426
+	Local y = 308
+	Local yy, i, cnt
+	p_Panel(x, y, 266, 142, "DEVICES  (repair: flight / docked)")
+	If g_ingame = False
+		Return
+	EndIf
+	yy = y + 22
+	cnt = 0
+	For i = 1 To ndevice
+		If damage[i] > 0.0
+			If cnt < 7
+				p_Text(FONT_SMALL, x + 8, yy, device[i], $FF7A7A)
+				p_Text(FONT_SMALL, x + 150, yy, p_FmtF(damage[i] + 0.05, 6, 2), $FFFFFF)
+				p_Text(FONT_SMALL, x + 205, yy, p_FmtF(a.docfac * damage[i] + 0.005, 6, 2), $9AB0D0)
+				yy = yy + 16
+			EndIf
+			cnt = cnt + 1
+		EndIf
+	Next
+	If cnt = 0
+		p_Text(FONT_UI, x + 8, yy, "All devices functional.", $5AE65A)
+	ElseIf cnt > 7
+		p_Text(FONT_SMALL, x + 8, yy, "... and " .. (cnt - 7) .. " more (DAMAGES)", $FFD020)
+	EndIf
+EndFunction
+
+Function p_DrawChart()
+	Local x = 698
+	Local y = 32
+	Local i, j, v, s, cx, cy, col, k, b, st
+	p_Panel(x, y, 318, 258, "STAR CHART  (klingons/bases/stars)")
+	For i = 1 To 8
+		p_Text(FONT_SMALL, QX + (i - 1) * QW + 13, QY - 15, p_Str(i), COL_LABEL)
+		p_Text(FONT_SMALL, QX - 14, QY + (i - 1) * QH + 6, p_Str(i), COL_LABEL)
+	Next
+	For i = 1 To 8
+		For j = 1 To 8
+			cx = QX + (j - 1) * QW
+			cy = QY + (i - 1) * QH
+			p_Rect(cx + 1, cy + 1, QW - 2, QH - 2, $060A14)
+			If g_ingame
+				v = starch[i][j]
+				If v < 0
+					p_Text(FONT_CHART, cx + 6, cy + 5, ".1.", $60E0E8)
+				ElseIf v = 0
+					p_Text(FONT_CHART, cx + 6, cy + 5, "...", $3A4258)
+				Else
+					If v > 999
+						v = v - 1000
+					Else
+						v = d.galaxy[i][j]
+					EndIf
+					If v >= 1000
+						p_Rect(cx + 1, cy + 1, QW - 2, QH - 2, $501010)
+						p_Text(FONT_CHART, cx + 6, cy + 5, "***", $FF6040)
+					Else
+						k = Int(v / 100)
+						b = Int(p_Mod(v, 100) / 10)
+						st = p_Mod(v, 10)
+						If k > 0
+							p_Rect(cx + 1, cy + 1, QW - 2, QH - 2, $2A0808)
+						EndIf
+						col = $5A5A5A
+						If k > 0
+							col = $FF5A5A
+						EndIf
+						p_Text(FONT_CHART, cx + 6, cy + 5, p_Str(k), col)
+						col = $5A5A5A
+						If b > 0
+							col = $60E0E8
+						EndIf
+						p_Text(FONT_CHART, cx + 6 + g_cwc, cy + 5, p_Str(b), col)
+						col = $5A5A5A
+						If st > 0
+							col = $FFE35A
+						EndIf
+						p_Text(FONT_CHART, cx + 6 + 2 * g_cwc, cy + 5, p_Str(st), col)
+					EndIf
+				EndIf
+				If (i = a.quadx) And (j = a.quady)
+					p_Frame(cx, cy, QW, QH, $40FF40)
+					p_Frame(cx + 1, cy + 1, QW - 2, QH - 2, $40FF40)
+				EndIf
+			EndIf
+		Next
+	Next
+	p_Text(FONT_SMALL, x + 8, QY + 8 * QH + 6, "Click a quadrant to enter its coordinates", COL_LABEL)
+EndFunction
+
+Function p_DrawButtons()
+	Local i, b
+	p_Panel(698, 294, 318, 156, "COMMANDS")
+	For i = 0 To g_nbuttons - 1
+		b = g_buttons[i]
+		p_Rect(b.x, b.y, b.w, b.h, $1C2A48)
+		p_Frame(b.x, b.y, b.w, b.h, $4A6A9C)
+		UseFont(FONT_SMALL)
+		p_Text(FONT_SMALL, b.x + Int((b.w - TextWidth(b.txt)) / 2), b.y + 3, b.txt, $E0E8FF)
+	Next
+EndFunction
+
+Function p_DrawLog()
+	Local total, first, i, y, s
+	p_Rect(8, LOGY - 6, SCR_W - 16, SCR_H - LOGY, $05070C)
+	p_Frame(8, LOGY - 6, SCR_W - 16, SCR_H - LOGY, COL_EDGE)
+	total = g_logn + 1
+	first = total - g_rows - g_scroll
+	If first < 0
+		first = 0
+	EndIf
+	y = LOGY
+	For i = first To first + g_rows - 1
+		If i < g_logn
+			p_DrawMarkup(LOGX, y, g_log[i])
+		ElseIf i = g_logn
+			s = g_cur
+			If g_mode = "line"
+				s = s .. "~c~" .. g_input .. "~B~_"
+			EndIf
+			p_DrawMarkup(LOGX, y, s)
+		EndIf
+		y = y + LOGLH
+	Next
+	If g_scroll > 0
+		p_Text(FONT_SMALL, SCR_W - 170, LOGY - 4, "-- scrolled back (wheel) --", $FFD020)
+	EndIf
+EndFunction
+
+Function p_DrawHeader()
+	p_Rect(0, 0, SCR_W, 26, $0A1428)
+	p_Text(FONT_UI, 12, 5, "U.S.S. ENTERPRISE  --  BRIDGE", COL_TITLE)
+	If g_ingame
+		p_Text(FONT_UI, 330, 5, "Stardate " .. p_FmtF(d.date, 0, 1) .. "     Klingons " .. d.remkl ..
+			"     Bases " .. d.rembase, $C0D0F0)
+	EndIf
+	p_Text(FONT_SMALL, SCR_W - 270, 7, "Type commands, or click buttons and maps", COL_LABEL)
+EndFunction
+
+Function p_Redraw()
+	g_frame = g_frame + 1
+	Cls(COL_BG)
+	UseFont(FONT_CHART)
+	g_cwc = TextWidth("0000000000") / 10
+	p_DrawHeader()
+	p_DrawSRS()
+	p_DrawStatus()
+	p_DrawDamage()
+	p_DrawChart()
+	p_DrawButtons()
+	p_DrawLog()
+	Flip()
+EndFunction
+
+; ---------------- visual effects ----------------
+
+Function p_DrawFx()
+	Local i, p, x1, y1, x2, y2, k, r
+	If g_fx.kind = "torp"
+		For i = 0 To g_trailn - 1
+			p = g_trail[i]
+			p_Disc(p.x, p.y, 1, $A04020)
+		Next
+		p_Disc(g_fx.x, g_fx.y, 5, $FF5020)
+		p_Disc(g_fx.x, g_fx.y, 3, $FFC060)
+		p_Disc(g_fx.x, g_fx.y, 1, $FFFFFF)
+	ElseIf g_fx.kind = "beam"
+		x1, y1 = p_SectorXY(g_fx.fx, g_fx.fy)
+		x2, y2 = p_SectorXY(g_fx.tx, g_fx.ty)
+		For k = -1 To 1
+			Line(x1 + k, y1, x2 + k, y2, g_fx.col)
+			Line(x1, y1 + k, x2, y2 + k, g_fx.col)
+		Next
+		Line(x1, y1, x2, y2, $FFFFFF)
+		p_Disc(x2, y2, 4, $FFFFFF)
+	ElseIf g_fx.kind = "boom"
+		x1, y1 = p_SectorXY(g_fx.x, g_fx.y)
+		r = g_fx.r
+		p_Disc(x1, y1, r, $FF6010)
+		If r > 4
+			p_Disc(x1, y1, r - 4, $FFC040)
+		EndIf
+		If r > 8
+			p_Disc(x1, y1, r - 8, $FFFFC0)
+		EndIf
+	ElseIf g_fx.kind = "ship"
+		p_Rect(g_fx.x - 16, g_fx.y - 12, 32, 24, $03050C)
+		p_DrawObject(a.ship, g_fx.x - Int(CS / 2), g_fx.y - Int(CS / 2))
+	EndIf
+EndFunction
+
+Function p_FxTorpBegin()
+	g_trail = {}
+	g_trailn = 0
+EndFunction
+
+; x = row, y = column, as floating sector coordinates
+Function p_FxTorp(x, y)
+	Local sx, sy
+	sx, sy = p_SectorXY(x, y)
+	g_fx = {kind = "torp", x = sx, y = sy}
+	g_trail[g_trailn] = {x = sx, y = sy}
+	g_trailn = g_trailn + 1
+	p_Redraw()
+	Wait(45, #MILLISECONDS)
+EndFunction
+
+Function p_FxEnd()
+	g_fx = Nil
+	g_trail = {}
+	g_trailn = 0
+EndFunction
+
+Function p_FxBeam(fx, fy, tx, ty, col)
+	Local k
+	For k = 1 To 3
+		g_fx = {kind = "beam", fx = fx, fy = fy, tx = tx, ty = ty, col = col}
+		p_Redraw()
+		Wait(70, #MILLISECONDS)
+		g_fx = Nil
+		p_Redraw()
+		Wait(30, #MILLISECONDS)
+	Next
+EndFunction
+
+Function p_FxBoom(x, y)
+	Local r
+	For r = 4 To 20 Step 4
+		g_fx = {kind = "boom", x = x, y = y, r = r}
+		p_Redraw()
+		Wait(45, #MILLISECONDS)
+	Next
+	g_fx = Nil
+EndFunction
+
+; ship gliding across the quadrant (float row/column)
+Function p_FxShip(x, y)
+	Local sx, sy
+	If (x < 0.5) Or (x > 10.5) Or (y < 0.5) Or (y > 10.5)
+		Return
+	EndIf
+	sx, sy = p_SectorXY(x, y)
+	g_fx = {kind = "ship", x = Int(sx), y = Int(sy)}
+	p_Redraw()
+	Wait(14, #MILLISECONDS)
+EndFunction
+
+; ---------------- event handlers ----------------
+
+Function p_OnVanilla(msg)
+	Local k = msg.key
+	If g_mode = "key"
+		g_keyhit = True
+		Return
+	EndIf
+	If g_mode <> "line"
+		Return
+	EndIf
+	If StrLen(k) <> 1
+		Return
+	EndIf
+	If (k = "~") Or (k = Chr(13)) Or (k = Chr(10)) Or (k = Chr(8)) Or (k = Chr(9)) Or (k = Chr(27)) Or (k = Chr(127))
+		Return
+	EndIf
+	If StrLen(g_input) < 100
+		g_input = g_input .. k
+	EndIf
+	p_Redraw()
+EndFunction
+
+Function p_OnKeyDown(msg)
+	Local k = msg.key
+	If g_mode = "key"
+		g_keyhit = True
+		Return
+	EndIf
+	If k = "PAGEUP"
+		g_scroll = g_scroll + g_rows - 2
+		If g_scroll > g_logn - g_rows + 1
+			g_scroll = g_logn - g_rows + 1
+		EndIf
+		If g_scroll < 0
+			g_scroll = 0
+		EndIf
+		p_Redraw()
+		Return
+	ElseIf k = "PAGEDOWN"
+		g_scroll = g_scroll - g_rows + 2
+		If g_scroll < 0
+			g_scroll = 0
+		EndIf
+		p_Redraw()
+		Return
+	EndIf
+	If g_mode <> "line"
+		Return
+	EndIf
+	If (k = "RETURN") Or (k = "ENTER")
+		g_lineReady = True
+	ElseIf (k = "BACKSPACE") Or (k = "DEL")
+		If StrLen(g_input) > 0
+			g_input = p_Left(g_input, StrLen(g_input) - 1)
+		EndIf
+		p_Redraw()
+	ElseIf k = "ESC"
+		g_input = ""
+		p_Redraw()
+	ElseIf k = "UP"
+		If g_histpos > 0
+			g_histpos = g_histpos - 1
+			g_input = g_history[g_histpos]
+			p_Redraw()
+		EndIf
+	ElseIf k = "DOWN"
+		If g_histpos < g_histn - 1
+			g_histpos = g_histpos + 1
+			g_input = g_history[g_histpos]
+		Else
+			g_histpos = g_histn
+			g_input = ""
+		EndIf
+		p_Redraw()
+	EndIf
+EndFunction
+
+Function p_AppendInput(s)
+	If (StrLen(g_input) > 0) And (p_Right(g_input, 1) <> " ")
+		g_input = g_input .. " "
+	EndIf
+	g_input = g_input .. s
+EndFunction
+
+Function p_OnMouseDown(msg)
+	Local mx = MouseX()
+	Local my = MouseY()
+	Local i, b, r, c
+	If g_mode = "key"
+		g_keyhit = True
+		Return
+	EndIf
+	If g_mode <> "line"
+		Return
+	EndIf
+	; command buttons: submit straight away
+	For i = 0 To g_nbuttons - 1
+		b = g_buttons[i]
+		If (mx >= b.x) And (mx < b.x + b.w) And (my >= b.y) And (my < b.y + b.h)
+			g_input = b.cmd
+			g_lineReady = True
+			Return
+		EndIf
+	Next
+	; short range scan: type "row col"
+	If g_ingame And (mx >= GX) And (mx < GX + CS * 10) And (my >= GY) And (my < GY + CS * 10)
+		c = Int((mx - GX) / CS) + 1
+		r = Int((my - GY) / CS) + 1
+		p_AppendInput(r .. " " .. c)
+		p_Redraw()
+		Return
+	EndIf
+	; star chart: type "qrow qcol"
+	If g_ingame And (mx >= QX) And (mx < QX + QW * 8) And (my >= QY) And (my < QY + QH * 8)
+		c = Int((mx - QX) / QW) + 1
+		r = Int((my - QY) / QH) + 1
+		p_AppendInput(r .. " " .. c)
+		p_Redraw()
+		Return
+	EndIf
+EndFunction
+
+Function p_OnWheelUp(msg)
+	g_scroll = g_scroll + 3
+	If g_scroll > g_logn - g_rows + 1
+		g_scroll = g_logn - g_rows + 1
+	EndIf
+	If g_scroll < 0
+		g_scroll = 0
+	EndIf
+	p_Redraw()
+EndFunction
+
+Function p_OnWheelDown(msg)
+	g_scroll = g_scroll - 3
+	If g_scroll < 0
+		g_scroll = 0
+	EndIf
+	p_Redraw()
+EndFunction

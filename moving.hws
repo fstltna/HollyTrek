@@ -1,0 +1,1052 @@
+/*
+** moving.hws -- Super Star Trek for Hollywood
+** movement, docking, navigation input, warp, impulse, time warp,
+** deep space probe and calling for help
+*/
+
+Function p_Lmove()
+	Local angle, deltax, deltay, bigger, x, y, finald, finalx, finaly, stopegy
+	Local oldquadx, oldquady, trbeam, n, l, ix, iy, kink, kinks, iquad, hitobj
+
+	trbeam = 0
+	If a.inorbit <> 0
+		p_Prout("~r~SULU~w~- \"Leaving standard orbit.\"")
+		a.inorbit = 0
+	EndIf
+
+	angle = (15.0 - a.direc) * 0.5235988
+	deltax = -Sin(angle)
+	deltay = Cos(angle)
+	If Abs(deltax) > Abs(deltay)
+		bigger = Abs(deltax)
+	Else
+		bigger = Abs(deltay)
+	EndIf
+	deltay = deltay / bigger
+	deltax = deltax / bigger
+
+	If (a.iscloaked <> 0) And (d.date + a.time >= future[FTBEAM])
+		; we can't be tractor beamed if cloaked, so move the event into the future
+		If d.remcom > 0
+			future[FTBEAM] = d.date + a.time + p_Expran(1.5 * a.intime / d.remcom)
+		Else
+			future[FTBEAM] = INF
+		EndIf
+	EndIf
+
+	; if tractor beam is to occur, don't move full distance
+	If d.date + a.time >= future[FTBEAM]
+		trbeam = 1
+		a.condit = IHRED
+		a.dist = a.dist * (future[FTBEAM] - d.date) / a.time + 0.1
+		a.time = future[FTBEAM] - d.date + 0.00001
+	EndIf
+	; move within the quadrant
+	quad[a.sectx][a.secty] = IHDOT
+	x = a.sectx
+	y = a.secty
+	ix = a.sectx
+	iy = a.secty
+	n = Int(10.0 * a.dist * bigger + 0.5)
+	hitobj = False
+
+	If n > 0
+		l = 1
+		While (l <= n) And (hitobj = False)
+			x = x + deltax
+			ix = Int(x + 0.5)
+			y = y + deltay
+			iy = Int(y + 0.5)
+			If (ix < 1) Or (ix > 10) Or (iy < 1) Or (iy > 10)
+				p_FxEnd()
+				; leaving quadrant -- allow final enemy attack
+				; don't do it if being pushed by Nova
+				If (a.nenhere <> 0) And (a.iattak <> 2) And (a.iscloaked = 0)
+					p_Newcnd()
+					For l = 1 To a.nenhere
+						finald = Sqrt(p_Sq(ix - kx[l]) + p_Sq(iy - ky[l]))
+						kavgd[l] = 0.5 * (finald + kdist[l])
+					Next
+					If d.galaxy[a.quadx][a.quady] <> 1000
+						p_Attack(0)
+					EndIf
+					If a.alldone <> 0
+						Return
+					EndIf
+				EndIf
+				; compute final position -- new quadrant and sector
+				x = 10 * (a.quadx - 1) + a.sectx
+				y = 10 * (a.quady - 1) + a.secty
+				ix = Int(x + 10.0 * a.dist * bigger * deltax + 0.5)
+				iy = Int(y + 10.0 * a.dist * bigger * deltay + 0.5)
+				; check for edge of galaxy
+				kinks = False
+				Repeat
+					kink = 0
+					If ix <= 0
+						ix = -ix + 1
+						kink = 1
+					EndIf
+					If iy <= 0
+						iy = -iy + 1
+						kink = 1
+					EndIf
+					If ix > 80
+						ix = 161 - ix
+						kink = 1
+					EndIf
+					If iy > 80
+						iy = 161 - iy
+						kink = 1
+					EndIf
+					If kink <> 0
+						kinks = True
+					EndIf
+				Until kink = 0
+
+				If kinks
+					a.nkinks = a.nkinks + 1
+					If a.nkinks = 3
+						; three strikes -- you're out!
+						p_Finish(FNEG3)
+						Return
+					EndIf
+					p_Prout("\nYOU HAVE ATTEMPTED TO CROSS THE NEGATIVE ENERGY BARRIER\n" ..
+						"AT THE EDGE OF THE GALAXY.  THE THIRD TIME YOU TRY THIS,\n" ..
+						"YOU WILL BE DESTROYED.\n")
+				EndIf
+				; compute final position in new quadrant
+				If trbeam <> 0
+					Return   ; don't bother if we are to be beamed
+				EndIf
+				oldquadx = a.quadx
+				oldquady = a.quady
+				a.quadx = Int((ix + 9) / 10)
+				a.quady = Int((iy + 9) / 10)
+				a.sectx = ix - 10 * (a.quadx - 1)
+				a.secty = iy - 10 * (a.quady - 1)
+				If (a.quadx <> oldquadx) Or (a.quady <> oldquady)
+					p_Proutn("\nEntering")
+					p_Cramlc(1, a.quadx, a.quady)
+				Else
+					p_Prout("(Negative energy barrier disturbs quadrant.)")
+				EndIf
+				p_Skip(1)
+				quad[a.sectx][a.secty] = a.ship
+				p_Newqad(0)
+				Return
+			EndIf
+			p_FxShip(x, y)
+			iquad = quad[ix][iy]
+			If iquad <> IHDOT
+				; object encountered in flight path
+				hitobj = True
+				p_FxEnd()
+				stopegy = 50.0 * a.dist / a.time
+				a.dist = 0.1 * Sqrt(p_Sq(a.sectx - ix) + p_Sq(a.secty - iy))
+				If (iquad = IHT) Or (iquad = IHK) Or (iquad = IHC) Or (iquad = IHS) Or (iquad = IHR)
+					; ram an enemy ship (or a Tholian)
+					a.sectx = ix
+					a.secty = iy
+					p_Ram(0, iquad, a.sectx, a.secty)
+					finalx = a.sectx
+					finaly = a.secty
+				ElseIf iquad = IHBLANK
+					p_Skip(1)
+					p_Prouts("~r~***RED ALERT!  RED ALERT!~w~")
+					p_Skip(1)
+					p_Proutn("***")
+					p_Crmship()
+					p_Proutn(" pulled into black hole at")
+					p_Cramlc(2, ix, iy)
+					p_Skip(1)
+					p_Finish(FHOLE)
+					Return
+				Else
+					; something else
+					p_Skip(1)
+					p_Crmship()
+					If iquad = IHWEB
+						p_Proutn(" encounters Tholian web at")
+					Else
+						p_Proutn(" blocked by object at")
+					EndIf
+					p_Cramlc(2, ix, iy)
+					p_Prout(";")
+					p_Proutn("Emergency stop required ~g~")
+					p_Cramf(stopegy, 0, 2)
+					p_Prout("~w~ units of energy.")
+					a.energy = a.energy - stopegy
+					finalx = x - deltax + 0.5
+					a.sectx = Int(finalx)
+					finaly = y - deltay + 0.5
+					a.secty = Int(finaly)
+					If a.energy <= 0
+						p_Finish(FNRG)
+						Return
+					EndIf
+				EndIf
+			EndIf
+			l = l + 1
+		Wend
+		If hitobj = False
+			a.dist = 0.1 * Sqrt(p_Sq(a.sectx - ix) + p_Sq(a.secty - iy))
+			a.sectx = ix
+			a.secty = iy
+		EndIf
+	EndIf
+	p_FxEnd()
+	; label100: no quadrant change -- compute new avg enemy distances
+	quad[a.sectx][a.secty] = a.ship
+	If a.nenhere <> 0
+		For l = 1 To a.nenhere
+			finald = Sqrt(p_Sq(ix - kx[l]) + p_Sq(iy - ky[l]))
+			kavgd[l] = 0.5 * (finald + kdist[l])
+			kdist[l] = finald
+		Next
+		p_Sortkl()
+		If (d.galaxy[a.quadx][a.quady] <> 1000) And (a.iattak = 0)
+			p_Attack(0)
+		EndIf
+		For l = 1 To a.nenhere
+			kavgd[l] = kdist[l]
+		Next
+	EndIf
+	p_Newcnd()
+	a.iattak = 0
+EndFunction
+
+Function p_Dock()
+	p_Chew()
+	If a.condit = IHDOCKED
+		p_Prout("Already docked.")
+		Return
+	EndIf
+	If a.inorbit <> 0
+		p_Prout("You must first leave standard orbit.")
+		Return
+	EndIf
+	If (a.basex = 0) Or (Abs(a.sectx - a.basex) > 1) Or (Abs(a.secty - a.basey) > 1)
+		p_Crmship()
+		p_Prout(" not adjacent to base.")
+		Return
+	EndIf
+	If a.iscloaked <> 0
+		p_Prout("You cannot dock while cloaked.")
+		Return
+	EndIf
+	a.condit = IHDOCKED
+	p_Prout("Docked.")
+	If a.energy < a.inenrg
+		a.energy = a.inenrg
+	EndIf
+	a.shield = a.inshld
+	a.torps = a.intorps
+	a.lsupres = a.inlsr
+	If a.brigcapacity - d.brigfree > 0
+		p_Prout("~g~" .. (a.brigcapacity - d.brigfree) .. "~w~ captured Klingons transferred to base.")
+		d.kcaptured = d.kcaptured + a.brigcapacity - d.brigfree
+		d.brigfree = a.brigcapacity
+	EndIf
+	If (a.stdamtim <> INF) And ((future[FCDBAS] < INF) Or (a.isatb = 1)) And (a.iseenit = 0)
+		; get attack report from base
+		p_Prout("~r~Lt. Uhura~w~- \"Captain, an important message from the starbase:\"")
+		p_Attakreport()
+		a.iseenit = 1
+	EndIf
+EndFunction
+
+Function p_Getcd(isprobe, akey)
+	/* This program originally required input in terms of a (clock)
+	   direction and distance. Somewhere in history, it was changed to
+	   cartesian coordinates. So we need to convert. "Manual" input is
+	   given as x and y displacements, where +y is downward. */
+	Local irowq = a.quadx
+	Local icolq = a.quady
+	Local irows, icols, key, xi, xj, xk, xl, deltax, deltay
+	Local itemp = 0
+	Local iprompt = 0
+	Local automatic = -1
+
+	a.direc = -1.0
+
+	If (a.landed = 1) And (isprobe = False)
+		p_Prout("Dummy! You can't leave standard orbit until you")
+		p_Proutn("are back aboard the ")
+		p_Crmship()
+		p_Prout(".")
+		p_Chew()
+		Return
+	EndIf
+	While automatic = -1
+		If damage[DCOMPTR] <> 0
+			If isprobe
+				p_Prout("~y~Computer damaged; manual navigation only~w~")
+			Else
+				p_Prout("~y~Computer damaged; manual movement only~w~")
+			EndIf
+			p_Chew()
+			automatic = 0
+			key = IHEOL
+		Else
+			If isprobe And (akey <> -1)
+				; for probe launch, use pre-scanned value first time
+				key = akey
+				akey = -1
+			Else
+				key = p_Scan()
+			EndIf
+			If key = IHEOL
+				p_Proutn("Manual or automatic- ")
+				iprompt = 1
+				p_Chew()
+			ElseIf key = IHALPHA
+				If p_Isit("manual")
+					automatic = 0
+					key = p_Scan()
+				ElseIf p_Isit("automatic")
+					automatic = 1
+					key = p_Scan()
+				Else
+					p_Huh()
+					p_Chew()
+					Return
+				EndIf
+			Else
+				; numeric
+				If isprobe
+					p_Prout("(Manual navigation assumed.)")
+				Else
+					p_Prout("(Manual movement assumed.)")
+				EndIf
+				automatic = 0
+			EndIf
+		EndIf
+	Wend
+
+	If automatic = 1
+		While key = IHEOL
+			If isprobe
+				p_Proutn("Target quadrant or quadrant&sector- ")
+			Else
+				p_Proutn("Destination sector or quadrant&sector- ")
+			EndIf
+			p_Chew()
+			iprompt = 1
+			key = p_Scan()
+		Wend
+		If key <> IHREAL
+			p_Huh()
+			Return
+		EndIf
+		xi = aaitem
+		key = p_Scan()
+		If key <> IHREAL
+			p_Huh()
+			Return
+		EndIf
+		xj = aaitem
+		key = p_Scan()
+		If key = IHREAL
+			; both quadrant and sector specified
+			xk = aaitem
+			key = p_Scan()
+			If key <> IHREAL
+				p_Huh()
+				Return
+			EndIf
+			xl = aaitem
+			irowq = Int(xi + 0.5)
+			icolq = Int(xj + 0.5)
+			irows = Int(xk + 0.5)
+			icols = Int(xl + 0.5)
+		Else
+			If isprobe
+				; only quadrant specified -- go to center of dest quad
+				irowq = Int(xi + 0.5)
+				icolq = Int(xj + 0.5)
+				irows = 5
+				icols = 5
+			Else
+				irows = Int(xi + 0.5)
+				icols = Int(xj + 0.5)
+			EndIf
+			itemp = 1
+		EndIf
+		If (irowq < 1) Or (irowq > 8) Or (icolq < 1) Or (icolq > 8) Or (irows < 1) Or (irows > 10) Or (icols < 1) Or (icols > 10)
+			p_Huh()
+			Return
+		EndIf
+		p_Skip(1)
+		If isprobe = False
+			If itemp <> 0
+				If iprompt <> 0
+					p_Proutn("~r~Helmsman Sulu~w~- \"Course locked in for")
+					p_Cramlc(2, irows, icols)
+					p_Prout(".\"")
+				EndIf
+			Else
+				p_Prout("~y~Ensign Chekov~w~- \"Course laid in, Captain.\"")
+			EndIf
+		EndIf
+		deltax = icolq - a.quady + 0.1 * (icols - a.secty)
+		deltay = a.quadx - irowq + 0.1 * (a.sectx - irows)
+	Else
+		; manual
+		While key = IHEOL
+			p_Proutn("X and Y displacements- ")
+			p_Chew()
+			iprompt = 1
+			key = p_Scan()
+		Wend
+		itemp = 2
+		If key <> IHREAL
+			p_Huh()
+			Return
+		EndIf
+		deltax = aaitem
+		key = p_Scan()
+		If key = IHEOL
+			deltay = 0.0
+		ElseIf key <> IHREAL
+			p_Huh()
+			Return
+		Else
+			deltay = aaitem
+		EndIf
+	EndIf
+	; check for zero movement
+	If (deltax = 0) And (deltay = 0)
+		p_Chew()
+		Return
+	EndIf
+	If (itemp = 2) And (isprobe = False)
+		p_Skip(1)
+		p_Prout("~r~Helmsman Sulu~w~- \"Aye, Sir.\"")
+	EndIf
+	a.dist = Sqrt(deltax * deltax + deltay * deltay)
+	a.direc = p_Atan2(deltax, deltay) * 1.90985932
+	If a.direc < 0.0
+		a.direc = a.direc + 12.0
+	EndIf
+	p_Chew()
+EndFunction
+
+Function p_Impuls()
+	Local power
+	a.ididit = 0
+	If damage[DIMPULS] <> 0
+		p_Chew()
+		p_Skip(1)
+		p_Prout("~r~Engineer Scott~w~- \"The impulse engines are damaged, Sir.\"")
+		Return
+	EndIf
+
+	If a.energy > 30.0
+		p_Getcd(False, 0)
+		If a.direc = -1.0
+			Return
+		EndIf
+		power = 20.0 + 100.0 * a.dist
+	Else
+		power = 30.0
+	EndIf
+
+	If power >= a.energy
+		; insufficient power for trip
+		p_Skip(1)
+		p_Prout("~b~First Officer Spock~w~- \"Captain, the impulse engines")
+		p_Prout("require 20.0 units to engage, plus 100.0 units per")
+		If a.energy > 30
+			p_Proutn("quadrant.  We can go, therefore, a maximum of ")
+			p_Cramf(0.01 * (a.energy - 20.0) - 0.05, 0, 1)
+			p_Prout(" quadrants.\"")
+		Else
+			p_Prout("quadrant.  They are, therefore, useless.\"")
+		EndIf
+		p_Chew()
+		Return
+	EndIf
+	; make sure enough time is left for the trip
+	a.time = a.dist / 0.095
+	If a.time >= d.remtime
+		p_Prout("~b~First Officer Spock~w~- \"Captain, our speed under impulse")
+		p_Prout("power is only 0.95 sectors per stardate. Are you sure")
+		p_Prout("we dare spend the time?\"")
+		If p_Ja() = False
+			a.time = 0.0
+			Return
+		EndIf
+	EndIf
+	; activate impulse engines and pay the cost
+	p_Lmove()
+	a.ididit = 1
+	If a.alldone <> 0
+		Return
+	EndIf
+	power = 20.0 + 100.0 * a.dist
+	a.energy = a.energy - power
+	If a.energy <= 0
+		p_Finish(FNRG)
+	EndIf
+EndFunction
+
+Function p_Warp(i)
+	Local blooey = 0
+	Local twarp = 0
+	Local iwarp, power, prob, angle, deltax, deltay, bigger, x, y, n, l, ix, iy, blocked
+
+	If i <> 2
+		; not WARPX entry
+		a.ididit = 0
+		If a.iscloaked <> 0
+			p_Chew()
+			p_Skip(1)
+			p_Prout("~r~Engineer Scott~w~- \"The warp engines can better not be used while cloaked, Sir.\"")
+			Return
+		EndIf
+		If damage[DWARPEN] > 10.0
+			p_Chew()
+			p_Skip(1)
+			p_Prout("~r~Engineer Scott~w~- \"The warp engines are damaged, Sir.\"")
+			Return
+		EndIf
+		If (damage[DWARPEN] > 0.0) And (a.warpfac > 4.0)
+			p_Chew()
+			p_Skip(1)
+			p_Prout("~r~Engineer Scott~w~- \"Sorry, Captain. Until this damage")
+			p_Prout("  is repaired, I can only give you warp 4.\"")
+			Return
+		EndIf
+
+		; read in course and distance
+		p_Getcd(False, 0)
+		If a.direc = -1.0
+			Return
+		EndIf
+
+		; make sure starship has enough energy for the trip
+		power = (a.dist + 0.05) * a.warpfac * a.warpfac * a.warpfac * (a.shldup + 1)
+
+		If power >= a.energy
+			; insufficient power for trip
+			a.ididit = 0
+			p_Skip(1)
+			p_Prout("Engineering to bridge--")
+			If (a.shldup = 0) Or (0.5 * power > a.energy)
+				iwarp = Int(p_Pow(a.energy / (a.dist + 0.05), 0.333333333))
+				If iwarp <= 0
+					p_Prout("~y~We can't do it, Captain. We haven't the energy~w~.")
+				Else
+					p_Proutn("We haven't the energy, but we could do it at warp ~g~")
+					p_Crami(iwarp, 1)
+					If a.shldup <> 0
+						p_Prout("~w~,\nif you'll lower the shields.")
+					Else
+						p_Prout("~w~.")
+					EndIf
+				EndIf
+			Else
+				p_Prout("~y~We haven't the energy to go that far with the shields up~w~.")
+			EndIf
+			Return
+		EndIf
+
+		; make sure enough time is left for the trip
+		a.time = 10.0 * a.dist / a.wfacsq
+		If a.time >= 0.8 * d.remtime
+			p_Skip(1)
+			p_Prout("~b~First Officer Spock~w~- \"Captain, I compute that such")
+			p_Proutn("  a trip would require approximately ~g~")
+			p_Cramf(100.0 * a.time / d.remtime, 0, 2)
+			p_Prout("~w~ percent of our")
+			p_Prout("  remaining time.  Are you sure this is wise?\"")
+			If p_Ja() = False
+				a.time = 0.0
+				Return
+			EndIf
+		EndIf
+	EndIf
+	; entry WARPX
+	If a.warpfac > 6.0
+		; decide if engine damage will occur
+		prob = a.dist * (6.0 - a.warpfac) * (6.0 - a.warpfac) / 66.666666666
+		If prob > p_Rand()
+			blooey = 1
+			a.dist = p_Rand() * a.dist
+		EndIf
+		; decide if time warp will occur
+		If 0.5 * a.dist * p_Pow(7.0, a.warpfac - 10.0) > p_Rand()
+			twarp = 1
+		EndIf
+		If (blooey <> 0) Or (twarp <> 0)
+			; if time warp or engine damage, check path
+			; if it is obstructed, don't do warp or damage
+			angle = (15.0 - a.direc) * 0.5235998
+			deltax = -Sin(angle)
+			deltay = Cos(angle)
+			If Abs(deltax) > Abs(deltay)
+				bigger = Abs(deltax)
+			Else
+				bigger = Abs(deltay)
+			EndIf
+			deltax = deltax / bigger
+			deltay = deltay / bigger
+			n = Int(10.0 * a.dist * bigger + 0.5)
+			x = a.sectx
+			y = a.secty
+			blocked = False
+			l = 1
+			While (l <= n) And (blocked = False)
+				x = x + deltax
+				ix = Int(x + 0.5)
+				If (ix < 1) Or (ix > 10)
+					blocked = True
+				Else
+					y = y + deltay
+					iy = Int(y + 0.5)
+					If (iy < 1) Or (iy > 10)
+						blocked = True
+					ElseIf quad[ix][iy] <> IHDOT
+						blooey = 0
+						twarp = 0
+					EndIf
+				EndIf
+				l = l + 1
+			Wend
+		EndIf
+	EndIf
+
+	; activate warp engines and pay the cost
+	p_Lmove()
+	If a.alldone <> 0
+		Return
+	EndIf
+	a.energy = a.energy - a.dist * a.warpfac * a.warpfac * a.warpfac * (a.shldup + 1)
+	If a.energy <= 0
+		p_Finish(FNRG)
+	EndIf
+	a.time = 10.0 * a.dist / a.wfacsq
+	If twarp <> 0
+		p_Timwrp()
+	EndIf
+	If blooey <> 0
+		damage[DWARPEN] = a.damfac * (3.0 * p_Rand() + 1.0)
+		p_Skip(1)
+		p_Prout("Engineering to bridge--")
+		p_Prout("  Scott here.  The warp engines are damaged.")
+		p_Prout("  We'll have to reduce speed to warp 4.")
+	EndIf
+	a.ididit = 1
+EndFunction
+
+Function p_Setwrp()
+	Local key, oldfac
+	key = p_Scan()
+	While key = IHEOL
+		p_Chew()
+		p_Proutn("Warp factor-")
+		key = p_Scan()
+	Wend
+	p_Chew()
+	If key <> IHREAL
+		p_Huh()
+		Return
+	EndIf
+	If damage[DWARPEN] > 10.0
+		p_Prout("~r~Warp engines inoperative~w~.")
+		Return
+	EndIf
+	If (damage[DWARPEN] > 0.0) And (aaitem > 4.0)
+		p_Prout("~r~Engineer Scott~w~- \"I'm doing my best, Captain,\n" ..
+			"  but right now we can only go warp 4.\"")
+		Return
+	EndIf
+	If aaitem > 10.0
+		p_Prout("~r~Helmsman Sulu~w~- \"Our top speed is warp 10, Captain.\"")
+		Return
+	EndIf
+	If aaitem < 1.0
+		p_Prout("~r~Helmsman Sulu~w~- \"We can't go below warp 1, Captain.\"")
+		Return
+	EndIf
+	oldfac = a.warpfac
+	a.warpfac = aaitem
+	a.wfacsq = a.warpfac * a.warpfac
+	If (a.warpfac <= oldfac) Or (a.warpfac <= 6.0)
+		p_Proutn("~r~Helmsman Sulu~w~- \"Warp factor ~g~")
+		p_Cramf(a.warpfac, 0, 1)
+		p_Prout("~w~, Captain.\"")
+		Return
+	EndIf
+	If a.warpfac < 8.00
+		p_Prout("~r~Engineer Scott~w~- \"Aye, but our maximum safe speed is warp 6.\"")
+		Return
+	EndIf
+	If a.warpfac = 10.0
+		p_Prout("~r~Engineer Scott~w~- \"Aye, Captain, we'll try it.\"")
+		Return
+	EndIf
+	p_Prout("~r~Engineer Scott~w~- \"Aye, Captain, but our engines may not take it.\"")
+EndFunction
+
+Function p_Atover(igrab)
+	Local power, distreq
+
+	p_Chew()
+	; is captain on planet?
+	If a.landed = 1
+		If damage[DTRANSP] <> 0
+			p_Finish(FPNOVA)
+			Return
+		EndIf
+		p_Prout("Scotty rushes to the transporter controls.")
+		If a.shldup <> 0
+			p_Prout("But with the shields up it's hopeless.")
+			p_Finish(FPNOVA)
+			Return
+		EndIf
+		p_Prouts("His desperate attempt to rescue you . . .")
+		If p_Rand() <= 0.5
+			p_Prout("~r~fails~w~.")
+			p_Finish(FPNOVA)
+			Return
+		EndIf
+		p_Prout("~g~SUCCEEDS~w~!")
+		If a.imine <> 0
+			a.imine = 0
+			p_Proutn("The crystals mined were ")
+			If p_Rand() <= 0.25
+				p_Prout("~r~lost~w~.")
+			Else
+				p_Prout("~g~saved~w~.")
+				a.icrystl = 1
+			EndIf
+		EndIf
+	EndIf
+	If igrab <> 0
+		Return
+	EndIf
+
+	; check to see if captain in shuttle craft
+	If a.icraft <> 0
+		p_Finish(FSTRACTOR)
+	EndIf
+	If a.alldone <> 0
+		Return
+	EndIf
+
+	; inform captain of attempt to reach safety
+	p_Skip(1)
+	Repeat
+		If a.justin <> 0
+			p_Prouts("~r~***RED ALERT!  RED ALERT!~w~")
+			p_Skip(1)
+			p_Proutn("The ")
+			p_Crmship()
+			p_Prout(" has stopped in a quadrant containing")
+			p_Prouts("   a supernova.")
+			p_Skip(2)
+		EndIf
+		p_Proutn("~r~***Emergency automatic override attempts to hurl ")
+		p_Crmship()
+		p_Skip(1)
+		p_Prout("safely out of quadrant~w~.")
+		If damage[DRADIO] > 0.0
+			starch[a.quadx][a.quady] = d.galaxy[a.quadx][a.quady] + 1000
+		Else
+			starch[a.quadx][a.quady] = 1
+		EndIf
+
+		; try to use warp engines
+		If damage[DWARPEN] <> 0
+			p_Skip(1)
+			p_Prout("~r~Warp engines damaged~w~.")
+			p_Finish(FSNOVAED)
+			Return
+		EndIf
+		a.warpfac = 6.0 + 2.0 * p_Rand()
+		a.wfacsq = a.warpfac * a.warpfac
+		p_Proutn("Warp factor set to ")
+		p_Cramf(a.warpfac, 1, 1)
+		p_Skip(1)
+		power = 0.75 * a.energy
+		a.dist = power / (a.warpfac * a.warpfac * a.warpfac * (a.shldup + 1))
+		distreq = 1.4142 + p_Rand()
+		If distreq < a.dist
+			a.dist = distreq
+		EndIf
+		a.time = 10.0 * a.dist / a.wfacsq
+		a.direc = 12.0 * p_Rand()   ; how dumb!
+		a.justin = 0
+		a.inorbit = 0
+		p_Warp(2)
+		If a.justin = 0
+			; this is bad news, we didn't leave quadrant
+			If a.alldone <> 0
+				Return
+			EndIf
+			p_Skip(1)
+			p_Prout("~y~Insufficient energy to leave quadrant~w~.")
+			p_Finish(FSNOVAED)
+			Return
+		EndIf
+		; repeat if another snova
+	Until d.galaxy[a.quadx][a.quady] <> 1000
+	If d.remkl = 0
+		p_Finish(FWON)   ; snova killed remaining enemy
+	EndIf
+EndFunction
+
+Function p_Timwrp()
+	Local l, ll, gotit
+	p_Prout("~b~***TIME WARP ENTERED.~w~")
+	If (d.snap <> 0) And (p_Rand() < 0.5)
+		; go back in time
+		p_Proutn("You are traveling backwards in time ")
+		p_Cramf(d.date - snapsht.date, 0, 2)
+		p_Prout(" stardates.")
+		d = p_DeepCopy(snapsht)
+		d.snap = 0
+		If d.remcom <> 0
+			future[FTBEAM] = d.date + p_Expran(a.intime / d.remcom)
+			future[FBATTAK] = d.date + p_Expran(0.3 * a.intime)
+		EndIf
+		future[FSNOVA] = d.date + p_Expran(0.5 * a.intime)
+		future[FSNAP] = d.date + p_Expran(0.25 * d.remtime)   ; next snapshot will be sooner
+		If d.nscrem <> 0
+			future[FSCMOVE] = 0.2777
+		EndIf
+		a.isatb = 0
+		future[FCDBAS] = INF
+		future[FSCDBAS] = INF
+		a.batx = 0
+		a.baty = 0
+
+		; make sure Galileo is consistent -- snapshot may have been taken
+		; when on planet, which would give us two Galileos!
+		gotit = 0
+		For l = 1 To a.inplan
+			If d.plnets[l].known = 2
+				gotit = 1
+				If (a.iscraft = 1) And (a.ship = IHE)
+					p_Prout("~y~Checkov~w~-  \"Security reports the Galileo has disappeared, Sir!")
+					a.iscraft = 0
+				EndIf
+			EndIf
+		Next
+		; likewise, if in the original time the Galileo was abandoned, but
+		; was on ship earlier, it would have vanished -- let's restore it
+		If (a.iscraft = 0) And (gotit = 0) And (damage[DSHUTTL] >= 0.0)
+			p_Prout("~y~Checkov~w~-  \"Security reports the Galileo has reappeared in the dock!\"")
+			a.iscraft = 1
+		EndIf
+
+		; revert star chart to earlier era, if it was known then
+		If (damage[DRADIO] = 0.0) Or (a.stdamtim > d.date)
+			For l = 1 To 8
+				For ll = 1 To 8
+					If starch[l][ll] > 1
+						If damage[DRADIO] > 0.0
+							starch[l][ll] = d.galaxy[l][ll] + 1000
+						Else
+							starch[l][ll] = 1
+						EndIf
+					EndIf
+				Next
+			Next
+			p_Prout("Spock has reconstructed a correct star chart from memory")
+			If damage[DRADIO] > 0.0
+				a.stdamtim = d.date
+			EndIf
+		EndIf
+	Else
+		; go forward in time
+		a.time = -0.5 * a.intime * p_Ln(p_Rand())
+		p_Proutn("You are traveling forward in time ")
+		p_Cramf(a.time, 1, 2)
+		p_Prout(" stardates.")
+		; cheat to make sure no tractor beams occur during time warp
+		future[FTBEAM] = future[FTBEAM] + a.time
+		damage[DRADIO] = damage[DRADIO] + a.time
+	EndIf
+	p_Newqad(0)
+EndFunction
+
+Function p_Probe()
+	Local angle, bigger, key
+	; new code to launch a deep space probe
+	If a.nprobes = 0
+		p_Chew()
+		p_Skip(1)
+		If a.ship = IHE
+			p_Prout("~r~Engineer Scott~w~- \"We have no more deep space probes, Sir.\"")
+		Else
+			p_Prout("Ye Faerie Queene has no deep space probes.")
+		EndIf
+		Return
+	EndIf
+	If damage[DDSP] <> 0.0
+		p_Chew()
+		p_Skip(1)
+		p_Prout("~r~Engineer Scott~w~- \"The probe launcher is damaged, Sir.\"")
+		Return
+	EndIf
+	If future[FDSPROB] <> INF
+		p_Chew()
+		p_Skip(1)
+		If p_Reports()
+			p_Prout("~r~Uhura~w~- \"The previous probe is still reporting data, Sir.\"")
+		Else
+			p_Prout("~b~Spock~w~-  \"Records show the previous probe has not yet")
+			p_Prout("   reached its destination.\"")
+		EndIf
+		Return
+	EndIf
+	key = p_Scan()
+
+	If key = IHEOL
+		; slow mode, so let Kirk know how many probes there are left
+		p_Crami(a.nprobes, 1)
+		If a.nprobes = 1
+			p_Prout(" probe left.")
+		Else
+			p_Prout(" probes left.")
+		EndIf
+		p_Proutn("Are you sure you want to fire a probe? ")
+		If p_Ja() = False
+			Return
+		EndIf
+	EndIf
+
+	a.isarmed = 0
+	If (key = IHALPHA) And (citem = "armed")
+		a.isarmed = 1
+		key = p_Scan()
+	ElseIf key = IHEOL
+		p_Proutn("Arm NOVAMAX warhead?")
+		If p_Ja()
+			a.isarmed = 1
+		EndIf
+	EndIf
+	p_Getcd(True, key)
+	If a.direc = -1.0
+		Return
+	EndIf
+	a.nprobes = a.nprobes - 1
+	angle = (15.0 - a.direc) * 0.5235988
+	a.probeinx = -Sin(angle)
+	a.probeiny = Cos(angle)
+	If Abs(a.probeinx) > Abs(a.probeiny)
+		bigger = Abs(a.probeinx)
+	Else
+		bigger = Abs(a.probeiny)
+	EndIf
+	a.probeiny = a.probeiny / bigger
+	a.probeinx = a.probeinx / bigger
+	a.proben = Int(10.0 * a.dist * bigger + 0.5)
+	a.probex = a.quadx * 10 + a.sectx - 1   ; we will use better packing than original
+	a.probey = a.quady * 10 + a.secty - 1
+	a.probecx = a.quadx
+	a.probecy = a.quady
+	future[FDSPROB] = d.date + 0.01   ; time to move one sector
+	p_Prout("~y~Ensign Chekov~w~-  \"The deep space probe is launched, Captain.\"")
+EndFunction
+
+Function p_Help()
+	; there's more than one way to move in this game!
+	Local ddist, xdist, probf, nearest, l, ix, iy, ok
+	p_Chew()
+	; test for conditions which prevent calling for help
+	If a.condit = IHDOCKED
+		p_Prout("~r~Lt. Uhura~w~-  \"But Captain, we're already docked.\"")
+		Return
+	EndIf
+	If damage[DRADIO] <> 0
+		p_Prout("Subspace radio damaged.")
+		Return
+	EndIf
+	If d.rembase = 0
+		p_Prout("~r~Lt. Uhura~w~-  \"Captain, I'm not getting any response from Starbase.\"")
+		Return
+	EndIf
+	If a.landed = 1
+		p_Proutn("You must be aboard the ")
+		p_Crmship()
+		p_Prout(".")
+		Return
+	EndIf
+	; OK -- call for help from nearest starbase
+	a.nhelp = a.nhelp + 1
+	If a.basex <> 0
+		; there's one in this quadrant
+		ddist = Sqrt(p_Sq(a.basex - a.sectx) + p_Sq(a.basey - a.secty))
+	Else
+		ddist = INF
+		nearest = 1
+		For l = 1 To d.rembase
+			xdist = 10.0 * Sqrt(p_Sq(d.baseqx[l] - a.quadx) + p_Sq(d.baseqy[l] - a.quady))
+			If xdist < ddist
+				ddist = xdist
+				nearest = l
+			EndIf
+		Next
+		; since starbase not in quadrant, set up new quadrant
+		a.quadx = d.baseqx[nearest]
+		a.quady = d.baseqy[nearest]
+		p_Newqad(1)
+	EndIf
+	; dematerialize starship
+	quad[a.sectx][a.secty] = IHDOT
+	p_Proutn("Starbase in")
+	p_Cramlc(1, a.quadx, a.quady)
+	p_Proutn(" responds--")
+	p_Crmship()
+	p_Prout(" dematerializes.")
+	p_Redraw()
+	; give starbase three chances to rematerialize starship
+	probf = p_Pow(1.0 - p_Pow(0.98, ddist), 0.33333333)
+	ok = False
+	l = 1
+	While (l <= 3) And (ok = False)
+		If l = 1
+			p_Proutn("1st")
+		ElseIf l = 2
+			p_Proutn("2nd")
+		Else
+			p_Proutn("3rd")
+		EndIf
+		p_Proutn(" attempt to re-materialize ")
+		p_Crmship()
+		p_Prouts(" . . . . . ")
+		If p_Rand() > probf
+			ok = True
+		Else
+			p_Prout("~r~fails~w~.")
+			l = l + 1
+		EndIf
+	Wend
+	If ok = False
+		p_Finish(FMATERIALIZE)
+		Return
+	EndIf
+	; rematerialization attempt should succeed if can get adj to base
+	For l = 1 To 5
+		ix = Int(a.basex + 3.0 * p_Rand() - 1)
+		iy = Int(a.basey + 3.0 * p_Rand() - 1)
+		If (ix >= 1) And (ix <= 10) And (iy >= 1) And (iy <= 10)
+			If quad[ix][iy] = IHDOT
+				; found one -- finish up
+				p_Prout("~g~succeeds~w~.")
+				a.sectx = ix
+				a.secty = iy
+				quad[ix][iy] = a.ship
+				p_Dock()
+				p_Skip(1)
+				p_Prout("~r~Lt. Uhura~w~-  \"Captain, we made it!\"")
+				Return
+			EndIf
+		EndIf
+	Next
+	p_Finish(FMATERIALIZE)
+EndFunction

@@ -1,0 +1,1631 @@
+/*
+** battle.hws -- Super Star Trek for Hollywood
+** cloaking, shields, ramming, torpedoes, enemy attacks, phasers,
+** and capturing Klingons
+*/
+
+Function p_Cloak()
+	Local key
+	Local action = 0   ; 0 none, 1 on, 2 off
+
+	If a.ship = IHF
+		p_Prout("Ye Faerie Queene has no cloaking device.")
+		Return
+	EndIf
+
+	key = p_Scan()
+
+	If key = IHREAL
+		Return
+	EndIf
+
+	If key = IHALPHA
+		If p_Isit("on")
+			If a.iscloaked <> 0
+				p_Prout("The cloaking device has already been switched on.")
+				Return
+			EndIf
+			action = 1
+		ElseIf p_Isit("off")
+			If a.iscloaked = 0
+				p_Prout("The cloaking device has already been switched off.")
+				Return
+			EndIf
+			action = 2
+		Else
+			p_Huh()
+			Return
+		EndIf
+	Else
+		If a.iscloaked = 0
+			p_Proutn("Switch cloaking device on?")
+			If p_Ja() = False
+				Return
+			EndIf
+			action = 1
+		EndIf
+		If a.iscloaked <> 0
+			p_Proutn("Switch cloaking device off?")
+			If p_Ja() = False
+				Return
+			EndIf
+			action = 2
+		EndIf
+		If action = 0
+			Return
+		EndIf
+	EndIf
+
+	If action = 2
+		If (a.irhere <> 0) And (d.date >= ALGERON) And (a.isviolreported = 0)
+			p_Prout("~b~Spock~w~- \"Captain, the Treaty of Algeron is in effect.\n   Are you sure this is wise?\"")
+			If p_Ja() = False
+				Return
+			EndIf
+		EndIf
+		p_Prout("~r~Engineer Scott~w~- \"Aye, Sir.\"")
+		a.iscloaked = 0
+		p_Treaty()
+		Return
+	EndIf
+
+	If damage[DCLOAK] <> 0
+		p_Prout("~r~Engineer Scott~w~- \"The cloaking device is damaged, Sir.\"")
+		Return
+	EndIf
+
+	If a.condit = IHDOCKED
+		p_Prout("You cannot cloak while docked.")
+		Return
+	EndIf
+
+	If (d.date >= ALGERON) And (a.isviolreported = 0)
+		p_Prout("~b~Spock~w~- \"Captain, using the cloaking device is be a violation")
+		p_Prout("  of the Treaty of Algeron. Considering the alternatives,")
+		p_Proutn("  are you sure this is wise?")
+		If p_Ja() = False
+			Return
+		EndIf
+	EndIf
+
+	p_Prout("~r~Engineer Scott~w~- \"The cloaking device has been engaged, Sir.\"")
+	a.iscloaking = 1
+	p_Treaty()
+EndFunction
+
+Function p_Sheild(i)
+	Local key
+	Local action = 0   ; 0 none, 1 up, 2 down, 3 energy transfer
+
+	a.ididit = 0
+
+	If i = 2
+		action = 1
+	Else
+		key = p_Scan()
+		If key = IHALPHA
+			If p_Isit("transfer")
+				action = 3
+			Else
+				p_Chew()
+				If damage[DSHIELD] <> 0
+					p_Prout("~r~Shields damaged and down~w~.")
+					Return
+				EndIf
+				If p_Isit("up")
+					action = 1
+				ElseIf p_Isit("down")
+					action = 2
+				EndIf
+			EndIf
+		EndIf
+		If action = 0
+			p_Proutn("Do you wish to change shield energy? ")
+			If p_Ja()
+				p_Proutn("Energy to transfer to shields- ")
+				action = 3
+			ElseIf damage[DSHIELD] <> 0
+				p_Prout("Shields damaged and down.")
+				Return
+			ElseIf a.shldup <> 0
+				p_Proutn("Shields are up. Do you want them down? ")
+				If p_Ja()
+					action = 2
+				Else
+					p_Chew()
+					Return
+				EndIf
+			Else
+				p_Proutn("Shields are down. Do you want them up? ")
+				If p_Ja()
+					action = 1
+				Else
+					p_Chew()
+					Return
+				EndIf
+			EndIf
+		EndIf
+	EndIf
+	If action = 1
+		; raise shields
+		If a.shldup <> 0
+			p_Prout("Shields already up.")
+			Return
+		EndIf
+		a.shldup = 1
+		a.shldchg = 1
+		If a.condit <> IHDOCKED
+			a.energy = a.energy - 50.0
+		EndIf
+		p_Prout("Shields raised.")
+		If a.energy <= 0
+			p_Skip(1)
+			p_Prout("Shields raising uses up last of energy.")
+			p_Finish(FNRG)
+			Return
+		EndIf
+		a.ididit = 1
+		Return
+	ElseIf action = 2
+		If a.shldup = 0
+			p_Prout("Shields already down.")
+			Return
+		EndIf
+		a.shldup = 0
+		a.shldchg = 1
+		p_Prout("Shields lowered.")
+		a.ididit = 1
+		Return
+	ElseIf action = 3
+		While p_Scan() <> IHREAL
+			p_Chew()
+			p_Proutn("Energy to transfer to shields- ")
+		Wend
+		p_Chew()
+		If aaitem = 0
+			Return
+		EndIf
+		If aaitem > a.energy
+			p_Prout("Insufficient ship energy.")
+			Return
+		EndIf
+		a.ididit = 1
+		If a.shield + aaitem >= a.inshld
+			p_Prout("Shield energy maximized.")
+			If a.shield + aaitem > a.inshld
+				p_Prout("Excess energy requested returned to ship energy")
+			EndIf
+			a.energy = a.energy - (a.inshld - a.shield)
+			a.shield = a.inshld
+			Return
+		EndIf
+		If (aaitem < 0.0) And (a.energy - aaitem > a.inenrg)
+			; prevent shield drain loophole
+			p_Skip(1)
+			p_Prout("Engineering to bridge--")
+			p_Prout("  Scott here. Power circuit problem, Captain.")
+			p_Prout("  I can't drain the shields.")
+			a.ididit = 0
+			Return
+		EndIf
+		If a.shield + aaitem < 0
+			p_Prout("All shield energy transferred to ship.")
+			a.energy = a.energy + a.shield
+			a.shield = 0.0
+			Return
+		EndIf
+		p_Proutn("Scotty- \"")
+		If aaitem > 0
+			p_Prout("Transferring energy to shields.\"")
+		Else
+			p_Prout("Draining energy from shields.\"")
+		EndIf
+		a.shield = a.shield + aaitem
+		a.energy = a.energy - aaitem
+	EndIf
+EndFunction
+
+Function p_Ram(ibumpd, ienm, ix, iy)
+	Local etype = 1.0
+	Local extradm, icas, l
+
+	p_FxBoom(ix, iy)
+	p_Prouts("~r~***RED ALERT!  RED ALERT!")
+	p_Skip(1)
+	p_Prout("***COLLISION IMMINENT.")
+	p_Skip(2)
+	p_Proutn("***~w~")
+	p_Crmship()
+	If ienm = IHR
+		etype = 1.5
+	ElseIf ienm = IHC
+		etype = 2.0
+	ElseIf ienm = IHS
+		etype = 2.5
+	ElseIf ienm = IHT
+		etype = 0.5
+	EndIf
+	If ibumpd <> 0
+		p_Proutn(" rammed by ")
+	Else
+		p_Proutn(" rams ")
+	EndIf
+	p_Crmena(0, ienm, 2, ix, iy)
+	If ibumpd <> 0
+		p_Proutn(" (original position)")
+	EndIf
+	p_Skip(1)
+	p_Deadkl(ix, iy, ienm, a.sectx, a.secty)
+	p_Proutn("***")
+	p_Crmship()
+	p_Prout(" ~r~heavily damaged~w~.")
+	icas = Int(10.0 + 20.0 * p_Rand())
+	p_Proutn("~b~***Sickbay reports ~g~")
+	p_Crami(icas, 1)
+	p_Prout("~b~ casualties~w~.")
+	a.casual = a.casual + icas
+	For l = 1 To ndevice
+		If (l <> DDRAY) And (damage[l] >= 0)
+			extradm = (10.0 * etype * p_Rand() + 1.0) * a.damfac
+			damage[l] = damage[l] + a.time + extradm   ; damage for at least time of travel!
+		EndIf
+	Next
+	a.shldup = 0
+	If d.remkl <> 0
+		p_Pause(2)
+		p_Dreprt()
+	Else
+		p_Finish(FWON)
+	EndIf
+EndFunction
+
+; returns the hit on the starship (0 if it was not hit)
+Function p_Torpedo(course, r, inx, iny)
+	Local hit = 0
+	Local l, iquad, ix, iy, jx, jy, ll, ac, angle, bullseye, deltax, deltay
+	Local x, y, bigger, ang, temp, xx, yy, kp, h1, done, found
+	Local shoved = 0
+
+	ac = course + 0.25 * r
+	angle = (15.0 - ac) * 0.5235988
+	bullseye = (15.0 - course) * 0.5235988
+	deltax = -Sin(angle)
+	deltay = Cos(angle)
+	x = inx
+	y = iny
+
+	bigger = Abs(deltax)
+	If Abs(deltay) > bigger
+		bigger = Abs(deltay)
+	EndIf
+	deltax = deltax / bigger
+	deltay = deltay / bigger
+
+	p_FxTorpBegin()
+	; loop to move a single torpedo
+	done = False
+	l = 1
+	While (l <= 15) And (done = False)
+		x = x + deltax
+		ix = Int(x + 0.5)
+		If (ix < 1) Or (ix > 10)
+			done = True
+		Else
+			y = y + deltay
+			iy = Int(y + 0.5)
+			If (iy < 1) Or (iy > 10)
+				done = True
+			EndIf
+		EndIf
+		If done = False
+			p_FxTorp(x, y)
+			If (l = 4) Or (l = 9)
+				p_Skip(1)
+			EndIf
+			p_Cramf(x, 0, 1)
+			p_Proutn(" - ")
+			p_Cramf(y, 0, 1)
+			p_Proutn("   ")
+			iquad = quad[ix][iy]
+			If iquad <> IHDOT
+				; hit something
+				done = True
+				p_FxEnd()
+				p_Skip(1)
+				If (iquad = IHE) Or (iquad = IHF)
+					; hit our ship
+					p_FxBoom(ix, iy)
+					p_Skip(1)
+					p_Proutn("Torpedo hits ")
+					p_Crmship()
+					p_Prout(".")
+					hit = 700.0 + 100.0 * p_Rand() - 1000.0 * Sqrt(p_Sq(ix - inx) + p_Sq(iy - iny)) * Abs(Sin(bullseye - angle))
+					hit = Abs(hit)
+					p_Newcnd()   ; undock
+					; we may be displaced
+					If a.landed = 1
+						Return(hit)   ; cheat if on a planet
+					EndIf
+					ang = angle + 2.5 * (p_Rand() - 0.5)
+					temp = Abs(Sin(ang))
+					If Abs(Cos(ang)) > temp
+						temp = Abs(Cos(ang))
+					EndIf
+					xx = -Sin(ang) / temp
+					yy = Cos(ang) / temp
+					jx = Int(ix + xx + 0.5)
+					jy = Int(iy + yy + 0.5)
+					If (jx < 1) Or (jx > 10) Or (jy < 1) Or (jy > 10)
+						Return(hit)
+					EndIf
+					If quad[jx][jy] = IHBLANK
+						p_Finish(FHOLE)
+						Return(hit)
+					EndIf
+					If quad[jx][jy] <> IHDOT
+						; can't move into object
+						Return(hit)
+					EndIf
+					a.sectx = jx
+					a.secty = jy
+					p_Crmship()
+					shoved = 1
+				ElseIf (iquad = IHC) Or (iquad = IHS) Or (iquad = IHR) Or (iquad = IHK)
+					If (iquad = IHC) Or (iquad = IHS)
+						If p_Rand() <= 0.05
+							p_Crmena(1, iquad, 2, ix, iy)
+							p_Prout(" uses anti-photon device;")
+							p_Prout("   torpedo neutralized.")
+							Return(hit)
+						EndIf
+					EndIf
+					; hit a regular enemy -- find it
+					found = a.nenhere + 1
+					For ll = a.nenhere To 1 Step -1
+						If (ix = kx[ll]) And (iy = ky[ll])
+							found = ll
+						EndIf
+					Next
+					ll = found
+					kp = Abs(kpower[ll])
+					h1 = 700.0 + 100.0 * p_Rand() - 1000.0 * Sqrt(p_Sq(ix - inx) + p_Sq(iy - iny)) * Abs(Sin(bullseye - angle))
+					h1 = Abs(h1)
+					If kp < h1
+						h1 = kp
+					EndIf
+					If kpower[ll] < 0
+						kpower[ll] = kpower[ll] + h1
+					Else
+						kpower[ll] = kpower[ll] - h1
+					EndIf
+					If kpower[ll] = 0
+						p_Deadkl(ix, iy, iquad, ix, iy)
+						Return(hit)
+					EndIf
+					p_Crmena(1, iquad, 2, ix, iy)
+					; if enemy damaged but not destroyed, try to displace
+					ang = angle + 2.5 * (p_Rand() - 0.5)
+					temp = Abs(Sin(ang))
+					If Abs(Cos(ang)) > temp
+						temp = Abs(Cos(ang))
+					EndIf
+					xx = -Sin(ang) / temp
+					yy = Cos(ang) / temp
+					jx = Int(ix + xx + 0.5)
+					jy = Int(iy + yy + 0.5)
+					If (jx < 1) Or (jx > 10) Or (jy < 1) Or (jy > 10)
+						p_Prout(" damaged but not destroyed.")
+						Return(hit)
+					EndIf
+					If quad[jx][jy] = IHBLANK
+						p_Prout(" buffeted into black hole.")
+						p_Deadkl(ix, iy, iquad, jx, jy)
+						Return(hit)
+					EndIf
+					If quad[jx][jy] <> IHDOT
+						; can't move into object
+						p_Prout(" damaged but not destroyed.")
+						Return(hit)
+					EndIf
+					p_Prout(" damaged--")
+					kx[ll] = jx
+					ky[ll] = jy
+					shoved = 1
+				ElseIf iquad = IHB
+					; hit a base
+					p_FxBoom(ix, iy)
+					p_Prout("~r~***STARBASE DESTROYED..~w~")
+					If starch[a.quadx][a.quady] < 0
+						starch[a.quadx][a.quady] = 0
+					EndIf
+					found = False
+					For ll = 1 To d.rembase
+						If (found = False) And (d.baseqx[ll] = a.quadx) And (d.baseqy[ll] = a.quady)
+							d.baseqx[ll] = d.baseqx[d.rembase]
+							d.baseqy[ll] = d.baseqy[d.rembase]
+							found = True
+						EndIf
+					Next
+					quad[ix][iy] = IHDOT
+					d.rembase = d.rembase - 1
+					a.basex = 0
+					a.basey = 0
+					d.galaxy[a.quadx][a.quady] = d.galaxy[a.quadx][a.quady] - 10
+					d.basekl = d.basekl + 1
+					p_Newcnd()
+					Return(hit)
+				ElseIf iquad = IHP
+					; hit a planet
+					p_FxBoom(ix, iy)
+					p_Crmena(1, iquad, 2, ix, iy)
+					p_Prout(" ~r~destroyed~w~.")
+					d.nplankl = d.nplankl + 1
+					d.newstuf[a.quadx][a.quady] = d.newstuf[a.quadx][a.quady] - 1
+					d.plnets[a.iplnet] = p_NulPlanet()
+					a.iplnet = 0
+					a.plnetx = 0
+					a.plnety = 0
+					quad[ix][iy] = IHDOT
+					If a.landed = 1
+						; captain perishes on planet
+						p_Finish(FDPLANET)
+					EndIf
+					Return(hit)
+				ElseIf iquad = IHSTAR
+					; hit a star
+					If p_Rand() > 0.10
+						p_Nova(ix, iy)
+						Return(hit)
+					EndIf
+					p_Crmena(1, IHSTAR, 2, ix, iy)
+					p_Prout(" unaffected by photon blast.")
+					Return(hit)
+				ElseIf iquad = IHQUEST
+					; hit a thingy
+					p_FxBoom(ix, iy)
+					p_Skip(1)
+					p_Prouts("~y~AAAAIIIIEEEEEEEEAAAAAAAAUUUUUGGGGGHHHHHHHHHHHH!!!~w~")
+					p_Skip(1)
+					p_Prouts("    HACK!     HACK!    HACK!        *CHOKE!*  ")
+					p_Skip(1)
+					p_Proutn("~b~Mr. Spock~w~-")
+					p_Prouts("  \"Facinating!\"")
+					p_Skip(1)
+					quad[ix][iy] = IHDOT
+					Return(hit)
+				ElseIf iquad = IHBLANK
+					; black hole
+					p_Skip(1)
+					p_Crmena(1, IHBLANK, 2, ix, iy)
+					p_Prout(" swallows torpedo.")
+					Return(hit)
+				ElseIf iquad = IHWEB
+					; hit the web
+					p_Skip(1)
+					p_Prout("~m~***Torpedo absorbed by Tholian web~w~.")
+					Return(hit)
+				ElseIf iquad = IHT
+					; hit a Tholian
+					p_Skip(1)
+					p_Crmena(1, IHT, 2, ix, iy)
+					h1 = 700.0 + 100.0 * p_Rand() - 1000.0 * Sqrt(p_Sq(ix - inx) + p_Sq(iy - iny)) * Abs(Sin(bullseye - angle))
+					h1 = Abs(h1)
+					If h1 >= 600
+						p_FxBoom(ix, iy)
+						p_Prout(" ~r~destroyed~w~.")
+						quad[ix][iy] = IHDOT
+						a.ithere = 0
+						a.ithx = 0
+						a.ithy = 0
+						Return(hit)
+					EndIf
+					If p_Rand() > 0.05
+						p_Prout(" survives photon blast.")
+						Return(hit)
+					EndIf
+					p_Prout(" ~b~disappears~w~.")
+					quad[ix][iy] = IHWEB
+					a.ithere = 0
+					a.ithx = 0
+					a.ithy = 0
+					p_Dropin(IHBLANK)
+					Return(hit)
+				Else
+					; problem!
+					p_Skip(1)
+					p_Proutn("Don't know how to handle collision with ")
+					p_Crmena(1, iquad, 2, ix, iy)
+					p_Skip(1)
+					Return(hit)
+				EndIf
+			EndIf
+		EndIf
+		l = l + 1
+	Wend
+	p_FxEnd()
+	If shoved <> 0
+		quad[jx][jy] = iquad
+		quad[ix][iy] = IHDOT
+		p_Proutn(" displaced by blast to")
+		p_Cramlc(2, jx, jy)
+		p_Skip(1)
+		For ll = 1 To a.nenhere
+			kdist[ll] = Sqrt(p_Sq(a.sectx - kx[ll]) + p_Sq(a.secty - ky[ll]))
+			kavgd[ll] = kdist[ll]
+		Next
+		p_Sortkl()
+		Return(hit)
+	EndIf
+	p_Skip(1)
+	p_Prout("Torpedo missed.")
+	Return(hit)
+EndFunction
+
+Function p_Fry(hit)
+	; a critical hit occurred
+	Local ncrit, extradm, l, ll, j, again
+	Local ktr = 1
+	Local cdam = {}
+
+	If hit < (275.0 - 25.0 * a.skill) * (1.0 + 0.5 * p_Rand())
+		Return
+	EndIf
+
+	ncrit = 1.0 + hit / (500.0 + 100.0 * p_Rand())
+	p_Proutn("~r~***CRITICAL HIT--~w~")
+	; select devices and cause damage
+	l = 1
+	While l <= ncrit
+		Repeat
+			j = Int(ndevice * p_Rand() + 1.0)
+			; cheat to prevent shuttle damage unless on ship
+			again = False
+			If damage[j] < 0.0
+				again = True
+			ElseIf (j = DSHUTTL) And (a.iscraft <> 1)
+				again = True
+			ElseIf (j = DCLOAK) And (a.ship <> IHE)
+				again = True
+			ElseIf j = DDRAY
+				again = True
+			EndIf
+		Until again = False
+		cdam[l] = j
+		extradm = (hit * a.damfac) / (ncrit * (75.0 + 25.0 * p_Rand()))
+		damage[j] = damage[j] + extradm
+		If l > 1
+			ll = 2
+			While (ll <= l) And (j <> cdam[ll - 1])
+				ll = ll + 1
+			Wend
+			If ll > l
+				ktr = ktr + 1
+				If ktr = 3
+					p_Skip(1)
+				EndIf
+				p_Proutn(" and ")
+				p_Proutn(device[j])
+			EndIf
+		Else
+			p_Proutn(device[j])
+		EndIf
+		l = l + 1
+	Wend
+	p_Prout(" damaged.")
+	If (damage[DSHIELD] <> 0) And (a.shldup <> 0)
+		p_Prout("~y~***Shields knocked down~w~.")
+		a.shldup = 0
+	EndIf
+	If (damage[DCLOAK] <> 0) And (a.iscloaked <> 0)
+		p_Prout("~r~***Cloaking device rendered inoperative~w~.")
+		a.iscloaked = 0
+	EndIf
+EndFunction
+
+Function p_Attack(k)
+	; k == 0 forces use of phasers in an attack
+	Local percent, l, jx, jy, iquad, itflag, hit, pfac, dustfac, r, course
+	Local absorb, hitsh, propor, icas, skiprest
+	Local ihurt = 0
+	Local i = 0
+	Local atackd = 0
+	Local attempt = 0
+	Local hitmax = 0.0
+	Local hittot = 0.0
+	Local chgfac = 1.0
+
+	If (a.iscloaked <> 0) And (a.iscloaking = 0)
+		Return   ; nothing happens if we are cloaked
+	EndIf
+
+	a.iattak = 1
+	If a.alldone <> 0
+		Return
+	EndIf
+
+	If a.ithere <> 0
+		p_Movetho()
+	EndIf
+
+	If a.neutz <> 0
+		; the one chance not to be attacked
+		a.neutz = 0
+		Return
+	EndIf
+	If (((a.comhere <> 0) Or (a.ishere <> 0)) And (a.justin = 0)) Or (a.skill = SEMERITUS)
+		p_Movcom()
+	EndIf
+	If a.nenhere = 0
+		Return
+	EndIf
+	pfac = 1.0 / a.inshld
+	If a.shldchg = 1
+		chgfac = 0.25 + 0.5 * p_Rand()
+	EndIf
+	p_Skip(1)
+	If a.skill <= SFAIR
+		i = 2
+	EndIf
+	For l = 1 To a.nenhere
+		skiprest = False
+		If kpower[l] < 0
+			skiprest = True   ; too weak to attack
+		EndIf
+		If skiprest = False
+			; compute hit strength and diminish shield power
+			r = p_Rand()
+			; increase chance of photon torpedos if docked or enemy energy low
+			If a.condit = IHDOCKED
+				r = r * 0.25
+			EndIf
+			If kpower[l] < 500
+				r = r * 0.25
+			EndIf
+			jx = kx[l]
+			jy = ky[l]
+			iquad = quad[jx][jy]
+			itflag = ((iquad = IHK) And (r > 0.0005)) Or (k = 0) Or ((iquad = IHC) And (r > 0.015)) Or ((iquad = IHR) And (r > 0.3)) Or ((iquad = IHS) And (r > 0.07))
+			If itflag
+				; enemy uses phasers
+				If a.condit = IHDOCKED
+					skiprest = True   ; don't waste the effort!
+				Else
+					attempt = 1
+					p_FxBeam(jx, jy, a.sectx, a.secty, $FF3030)
+					dustfac = 0.8 + 0.05 * p_Rand()
+					hit = kpower[l] * p_Pow(dustfac, kavgd[l])
+					kpower[l] = kpower[l] * 0.75
+				EndIf
+			Else
+				; enemy used photon torpedo
+				course = 1.90985 * p_Atan2(a.secty - jy, jx - a.sectx)
+				hit = 0
+				p_Proutn("~y~***TORPEDO INCOMING~w~")
+				If damage[DSRSENS] <= 0.0
+					p_Proutn(" From ")
+					p_Crmena(0, iquad, i, jx, jy)
+				EndIf
+				attempt = 1
+				p_Prout("--")
+				r = (p_Rand() + p_Rand()) * 0.5 - 0.5
+				r = r + 0.002 * kpower[l] * r
+				hit = p_Torpedo(course, r, jx, jy)
+				If d.remkl = 0
+					p_Finish(FWON)   ; Klingons did themselves in!
+				EndIf
+				If (d.galaxy[a.quadx][a.quady] = 1000) Or (a.alldone <> 0)
+					Return   ; supernova or finished
+				EndIf
+				If hit = 0
+					skiprest = True
+				EndIf
+			EndIf
+		EndIf
+		If skiprest = False
+			If (a.shldup <> 0) Or (a.shldchg <> 0)
+				; shields will take hits
+				propor = pfac * a.shield
+				If propor < 0.1
+					propor = 0.1
+				EndIf
+				hitsh = propor * chgfac * hit + 1.0
+				atackd = 1
+				absorb = 0.8 * hitsh
+				If absorb > a.shield
+					absorb = a.shield
+				EndIf
+				a.shield = a.shield - absorb
+				hit = hit - hitsh
+				If (propor > 0.1) And (hit < 0.005 * a.energy)
+					skiprest = True
+				EndIf
+			EndIf
+		EndIf
+		If skiprest = False
+			; it's a hit -- print out hit size
+			atackd = 1
+			ihurt = 1
+			p_Cramf(hit, 0, 2)
+			p_Proutn(" unit hit")
+			If ((damage[DSRSENS] > 0) And itflag) Or (a.skill <= SFAIR)
+				p_Proutn(" on the ")
+				p_Crmship()
+			EndIf
+			If (damage[DSRSENS] <= 0.0) And itflag
+				p_Proutn(" from ")
+				p_Crmena(0, iquad, i, jx, jy)
+			EndIf
+			p_Skip(1)
+			; decide if hit is critical
+			If hit > hitmax
+				hitmax = hit
+			EndIf
+			hittot = hittot + hit
+			p_Fry(hit)
+			a.energy = a.energy - hit
+		EndIf
+	Next
+	If a.energy <= 0
+		; returning home upon your shield, not with it...
+		p_Finish(FBATTLE)
+		Return
+	EndIf
+	If (attempt = 0) And (a.condit = IHDOCKED)
+		p_Prout("~y~***Enemies decide against attacking your ship~w~.")
+	EndIf
+	If atackd = 0
+		Return
+	EndIf
+	percent = Int(100.0 * pfac * a.shield + 0.5)
+	If ihurt = 0
+		; shields fully protect ship
+		p_Proutn("Enemy attack reduces shield strength to ")
+	Else
+		; print message if starship suffered hit(s)
+		p_Skip(1)
+		p_Proutn("Energy left ")
+		p_Cramf(a.energy, 0, 2)
+		p_Proutn("    shields ")
+		If a.shldup <> 0
+			p_Proutn("up, ")
+		ElseIf damage[DSHIELD] = 0
+			p_Proutn("down, ")
+		Else
+			p_Proutn("damaged, ")
+		EndIf
+	EndIf
+	p_Crami(percent, 1)
+	p_Proutn("%   torpedoes left ")
+	p_Crami(a.torps, 1)
+	p_Skip(1)
+	; check if anyone was hurt
+	If (hitmax >= 200) Or (hittot >= 500)
+		icas = Int(hittot * p_Rand() * 0.015)
+		If icas >= 2
+			p_Skip(1)
+			p_Proutn("~b~McCoy~w~-  \"Sickbay to bridge.  We suffered ~g~")
+			p_Crami(icas, 1)
+			p_Prout("~w~ casualties")
+			p_Prout("   in that last attack.\"")
+			a.casual = a.casual + icas
+		EndIf
+	EndIf
+	; after attack, reset average distance to enemies
+	For l = 1 To a.nenhere
+		kavgd[l] = kdist[l]
+	Next
+	p_Sortkl()
+EndFunction
+
+Function p_Deadkl(ix, iy, etype, ixx, iyy)
+	; added ixx and iyy allow enemy to "move" before dying
+	Local i, j, found
+
+	p_FxBoom(ixx, iyy)
+	p_Crmena(1, etype, 2, ixx, iyy)
+	; decide what kind of enemy it is and update appropriately
+	If etype = IHR
+		; chalk up a Romulan
+		d.newstuf[a.quadx][a.quady] = d.newstuf[a.quadx][a.quady] - 10
+		a.irhere = a.irhere - 1
+		d.nromkl = d.nromkl + 1
+		d.nromrem = d.nromrem - 1
+	ElseIf etype = IHT
+		; killed a Tholian
+		a.ithere = 0
+	Else
+		; some etype of a Klingon
+		d.galaxy[a.quadx][a.quady] = d.galaxy[a.quadx][a.quady] - 100
+		a.klhere = a.klhere - 1
+		d.remkl = d.remkl - 1
+		If etype = IHC
+			a.comhere = 0
+			found = 0
+			For i = d.remcom To 1 Step -1
+				If (d.cx[i] = a.quadx) And (d.cy[i] = a.quady)
+					found = i
+				EndIf
+			Next
+			If found > 0
+				d.cx[found] = d.cx[d.remcom]
+				d.cy[found] = d.cy[d.remcom]
+			EndIf
+			d.cx[d.remcom] = 0
+			d.cy[d.remcom] = 0
+			d.remcom = d.remcom - 1
+			future[FTBEAM] = INF
+			If d.remcom <> 0
+				future[FTBEAM] = d.date + p_Expran(1.0 * a.incom / d.remcom)
+			EndIf
+			d.killc = d.killc + 1
+		ElseIf etype = IHK
+			d.killk = d.killk + 1
+		ElseIf etype = IHS
+			d.nscrem = 0
+			a.ishere = 0
+			d.isx = 0
+			d.isy = 0
+			a.isatb = 0
+			a.iscate = 0
+			d.nsckill = 1
+			future[FSCMOVE] = INF
+			future[FSCDBAS] = INF
+		EndIf
+	EndIf
+
+	; for each kind of enemy, finish message to player
+	p_Prout(" ~r~destroyed~w~.")
+	quad[ix][iy] = IHDOT
+	If d.remkl = 0
+		Return
+	EndIf
+
+	d.remtime = d.remres / (d.remkl + 4 * d.remcom)
+
+	If etype = IHT
+		Return
+	EndIf
+
+	; remove enemy ship from arrays describing local conditions
+	i = a.nenhere + 1
+	For j = a.nenhere To 1 Step -1
+		If (kx[j] = ix) And (ky[j] = iy)
+			i = j
+		EndIf
+	Next
+	a.nenhere = a.nenhere - 1
+	If i <= a.nenhere
+		For j = i To a.nenhere
+			kx[j] = kx[j + 1]
+			ky[j] = ky[j + 1]
+			kpower[j] = kpower[j + 1]
+			kdist[j] = kdist[j + 1]
+			kavgd[j] = kdist[j]
+		Next
+	EndIf
+	kx[a.nenhere + 1] = 0
+	ky[a.nenhere + 1] = 0
+	kdist[a.nenhere + 1] = 0
+	kavgd[a.nenhere + 1] = 0
+	kpower[a.nenhere + 1] = 0
+EndFunction
+
+; returns (1, 0) if the target is invalid, else (0, course)
+Function p_Targetcheck(x, y)
+	Local deltx, delty
+	If (x < 1.0) Or (x > 10.0) Or (y < 1.0) Or (y > 10.0)
+		p_Huh()
+		Return(1, 0)
+	EndIf
+	deltx = 0.1 * (y - a.secty)
+	delty = 0.1 * (a.sectx - x)
+	If (deltx = 0) And (delty = 0)
+		p_Skip(1)
+		p_Prout("~b~Spock~w~-  \"Bridge to sickbay.  Dr. McCoy,")
+		p_Prout("  I recommend an immediate review of")
+		p_Prout("  the Captain's psychological profile.")
+		p_Chew()
+		Return(1, 0)
+	EndIf
+	Return(0, 1.90985932 * p_Atan2(deltx, delty))
+EndFunction
+
+Function p_Photon()
+	Local tx = {}
+	Local ty = {}
+	Local course = {}
+	Local r, key, n, i, osuabor, bad, c, promptall, abortnow, done
+
+	a.ididit = 0
+
+	If damage[DPHOTON] <> 0
+		p_Prout("~y~Photon tubes damaged~w~.")
+		p_Chew()
+		Return
+	EndIf
+	If a.torps = 0
+		p_Prout("No torpedoes left.")
+		p_Chew()
+		Return
+	EndIf
+	key = p_Scan()
+	done = False
+	While done = False
+		If key = IHALPHA
+			p_Huh()
+			Return
+		ElseIf key = IHEOL
+			p_Crami(a.torps, 1)
+			p_Prout(" torpedoes left.")
+			p_Proutn("Number of torpedoes to fire- ")
+			key = p_Scan()
+		Else
+			n = Int(aaitem + 0.5)
+			If n <= 0
+				; abort command
+				p_Chew()
+				Return
+			EndIf
+			If n > 3
+				p_Prout("Maximum of 3 torpedoes per burst.")
+			ElseIf n <= a.torps
+				done = True
+			EndIf
+			If done = False
+				p_Chew()
+				key = IHEOL
+			EndIf
+		EndIf
+	Wend
+	promptall = False
+	i = 1
+	done = False
+	While (i <= n) And (done = False)
+		key = p_Scan()
+		If (i = 1) And (key = IHEOL)
+			promptall = True   ; we will try prompting
+			done = True
+		ElseIf (i = 2) And (key = IHEOL)
+			; direct all torpedoes at one target
+			While i <= n
+				tx[i] = tx[1]
+				ty[i] = ty[1]
+				course[i] = course[1]
+				i = i + 1
+			Wend
+			done = True
+		Else
+			If key <> IHREAL
+				p_Huh()
+				Return
+			EndIf
+			tx[i] = aaitem
+			key = p_Scan()
+			If key <> IHREAL
+				p_Huh()
+				Return
+			EndIf
+			ty[i] = aaitem
+			bad, c = p_Targetcheck(tx[i], ty[i])
+			If bad <> 0
+				Return
+			EndIf
+			course[i] = c
+			i = i + 1
+		EndIf
+	Wend
+	p_Chew()
+	If promptall
+		; prompt for each one
+		For i = 1 To n
+			p_Proutn("Target sector for torpedo number")
+			p_Crami(i, 2)
+			p_Proutn("- ")
+			key = p_Scan()
+			If key <> IHREAL
+				p_Huh()
+				Return
+			EndIf
+			tx[i] = aaitem
+			key = p_Scan()
+			If key <> IHREAL
+				p_Huh()
+				Return
+			EndIf
+			ty[i] = aaitem
+			p_Chew()
+			bad, c = p_Targetcheck(tx[i], ty[i])
+			If bad <> 0
+				Return
+			EndIf
+			course[i] = c
+		Next
+	EndIf
+	a.ididit = 1
+	; loop for moving <n> torpedoes
+	osuabor = 0
+	i = 1
+	While (i <= n) And (osuabor = 0)
+		abortnow = False
+		If a.condit <> IHDOCKED
+			a.torps = a.torps - 1
+		EndIf
+		r = (p_Rand() + p_Rand()) * 0.5 - 0.5
+		If Abs(r) >= 0.47
+			; misfire!
+			r = (p_Rand() + 1.2) * r
+			If n > 1
+				p_Prouts("~r~***TORPEDO NUMBER~g~")
+				p_Crami(i, 2)
+				p_Prouts("~r~ MISFIRES~w~.")
+			Else
+				p_Prouts("~r~***TORPEDO MISFIRES~w~.")
+			EndIf
+			p_Skip(1)
+			If i < n
+				p_Prout("  Remainder of burst aborted.")
+			EndIf
+			osuabor = 1
+			If p_Rand() <= 0.2
+				p_Prout("~r~***Photon tubes damaged by misfire~w~.")
+				damage[DPHOTON] = a.damfac * (1.0 + 2.0 * p_Rand())
+				abortnow = True
+			EndIf
+		EndIf
+		If abortnow = False
+			If a.iscloaked <> 0
+				r = r * 1.2   ; torpedoes are less accurate
+			ElseIf (a.shldup <> 0) Or (a.condit = IHDOCKED)
+				r = r * (1.0 + 0.0001 * a.shield)   ; torpedoes are less accurate
+			EndIf
+
+			If n <> 1
+				p_Skip(1)
+				p_Proutn("Track for torpedo number")
+				p_Crami(i, 2)
+				p_Proutn("-   ")
+			Else
+				p_Skip(1)
+				p_Proutn("Torpedo track- ")
+			EndIf
+			p_Torpedo(course[i], r, a.sectx, a.secty)
+			If (a.alldone <> 0) Or (d.galaxy[a.quadx][a.quady] = 1000)
+				Return
+			EndIf
+		EndIf
+		i = i + 1
+	Wend
+	If d.remkl = 0
+		p_Finish(FWON)
+	EndIf
+EndFunction
+
+Function p_Overheat(rpow)
+	Local chekbrn
+	If rpow > 1500
+		chekbrn = (rpow - 1500.0) * 0.00038
+		If p_Rand() <= chekbrn
+			p_Prout("~r~Weapons officer Sulu~w~-  \"Phasers overheated, sir.\"")
+			damage[DPHASER] = a.damfac * (1.0 + p_Rand()) * (1.0 + chekbrn)
+		EndIf
+	EndIf
+EndFunction
+
+Function p_Checkshctrl(rpow)
+	Local hit, icas
+
+	p_Skip(1)
+	If p_Rand() < 0.998
+		p_Prout("Shields lowered.")
+		Return(0)
+	EndIf
+	; something bad has happened
+	p_Prouts("~r~***RED ALERT!  RED ALERT!~w~")
+	p_Skip(2)
+	hit = rpow * a.shield / a.inshld
+	a.energy = a.energy - (rpow + hit * 0.8)
+	a.shield = a.shield - hit * 0.2
+	If a.energy <= 0.0
+		p_Prouts("~r~Sulu~w~-  \"Captain! Shield malf~m~***********************~w~\"")
+		p_Skip(1)
+		p_Stars()
+		p_Finish(FPHASER)
+		Return(1)
+	EndIf
+	p_Prouts("~r~Sulu~w~-  \"Captain! Shield malfunction! Phaser fire contained!\"")
+	p_Skip(2)
+	p_Prout("~r~Lt. Uhura~w~-  \"Sir, all decks reporting damage.\"")
+	icas = Int(hit * p_Rand() * 0.012)
+	p_Skip(1)
+	p_Fry(0.8 * hit)
+	If icas <> 0
+		p_Skip(1)
+		p_Prout("~b~McCoy~w~ to bridge- \"Severe radiation burns, Jim.")
+		p_Proutn("  ~g~")
+		p_Crami(icas, 1)
+		p_Prout("~w~ casualties so far.\"")
+		a.casual = a.casual + icas
+	EndIf
+	p_Skip(1)
+	p_Prout("Phaser energy dispersed by shields.")
+	p_Prout("Enemy unaffected.")
+	p_Overheat(rpow)
+	Return(1)
+EndFunction
+
+Function p_Phasers()
+	Local hits = p_Arr1(21, 0.0)
+	Local rpow = 0.0
+	Local kz = 0
+	Local k = 1
+	Local ifast = 0
+	Local no = 0
+	Local ipoop = 1
+	Local msgflag = 1
+	Local automode = 0   ; 0 notset, 1 manual, 2 forceman, 3 automatic
+	Local key, i, extra, powrem, over, temp, ii, jj, ienm, irec, avail, handled, fastcost
+
+	p_Skip(1)
+	; SR sensors and Computer
+	If damage[DSRSENS] + damage[DCOMPTR] > 0
+		ipoop = 0
+	EndIf
+	If a.condit = IHDOCKED
+		p_Prout("Phasers can't be fired through base shields.")
+		p_Chew()
+		Return
+	EndIf
+	If damage[DPHASER] <> 0
+		p_Prout("~r~Phaser control damaged~w~.")
+		p_Chew()
+		Return
+	EndIf
+	If a.shldup <> 0
+		If damage[DSHCTRL] <> 0
+			p_Prout("High speed shield control damaged.")
+			p_Chew()
+			Return
+		EndIf
+		If a.energy <= 200.0
+			p_Prout("Insufficient energy to activate high-speed shield control.")
+			p_Chew()
+			Return
+		EndIf
+		p_Prout("~r~Weapons Officer Sulu~w~-  \"High-speed shield control enabled, sir.\"")
+		ifast = 1
+	EndIf
+	fastcost = 0
+	If ifast <> 0
+		fastcost = 200
+	EndIf
+	a.ididit = 1
+	; original code so convoluted, I re-did it all
+	While automode = 0
+		key = p_Scan()
+		If key = IHALPHA
+			If p_Isit("manual")
+				If a.nenhere = 0
+					p_Prout("There is no enemy present to select.")
+					p_Chew()
+					key = IHEOL
+					automode = 3
+				Else
+					automode = 1
+					key = p_Scan()
+				EndIf
+			ElseIf p_Isit("automatic")
+				If (ipoop = 0) And (a.nenhere <> 0)
+					automode = 2
+				Else
+					If a.nenhere = 0
+						p_Prout("Energy will be expended into space.")
+					EndIf
+					automode = 3
+					key = p_Scan()
+				EndIf
+			ElseIf p_Isit("no")
+				no = 1
+			Else
+				p_Huh()
+				a.ididit = 0
+				Return
+			EndIf
+		ElseIf key = IHREAL
+			If a.nenhere = 0
+				p_Prout("Energy will be expended into space.")
+				automode = 3
+			ElseIf ipoop = 0
+				automode = 2
+			Else
+				automode = 3
+			EndIf
+		Else
+			; IHEOL
+			If a.nenhere = 0
+				p_Prout("Energy will be expended into space.")
+				automode = 3
+			ElseIf ipoop = 0
+				automode = 2
+			Else
+				p_Proutn("Manual or automatic? ")
+			EndIf
+		EndIf
+	Wend
+
+	If automode = 3
+		; AUTOMATIC
+		If key = IHALPHA
+			If p_Isit("no")
+				no = 1
+				key = p_Scan()
+			EndIf
+		EndIf
+		avail = a.energy - fastcost
+		If (key <> IHREAL) And (a.nenhere <> 0)
+			p_Proutn("Phasers locked on target. Energy available =")
+			p_Cramf(avail, 1, 2)
+			p_Skip(1)
+		EndIf
+		Repeat
+			While key <> IHREAL
+				p_Chew()
+				p_Proutn("Units to fire=")
+				key = p_Scan()
+			Wend
+			rpow = aaitem
+			If rpow >= avail
+				p_Proutn("Energy available= ")
+				p_Cramf(avail, 1, 2)
+				p_Skip(1)
+				key = IHEOL
+			EndIf
+		Until rpow < avail
+		If rpow <= 0
+			; chicken out
+			a.ididit = 0
+			p_Chew()
+			Return
+		EndIf
+		key = p_Scan()
+		If key = IHALPHA
+			If p_Isit("no")
+				no = 1
+			EndIf
+		EndIf
+		If ifast <> 0
+			a.energy = a.energy - 200   ; go and do it!
+			If p_Checkshctrl(rpow) <> 0
+				Return
+			EndIf
+		EndIf
+		p_Chew()
+		a.energy = a.energy - rpow
+		extra = rpow
+		If a.nenhere <> 0
+			extra = 0.0
+			powrem = rpow
+			For i = 1 To a.nenhere
+				hits[i] = 0.0
+				If powrem > 0
+					hits[i] = Abs(kpower[i]) / (phasefac * p_Pow(0.90, kdist[i]))
+					over = (0.01 + 0.05 * p_Rand()) * hits[i]
+					temp = powrem
+					powrem = powrem - (hits[i] + over)
+					If (powrem <= 0) And (temp < hits[i])
+						hits[i] = temp
+					EndIf
+					If powrem <= 0
+						over = 0.0
+					EndIf
+					extra = extra + over
+				EndIf
+			Next
+			If powrem > 0.0
+				extra = extra + powrem
+			EndIf
+			p_Hittem(hits)
+		EndIf
+		If (extra > 0) And (a.alldone = 0)
+			If a.ithere <> 0
+				p_Proutn("~y~*** Tholian web absorbs ")
+				If a.nenhere > 0
+					p_Proutn("excess ")
+				EndIf
+				p_Prout("phaser energy~w~.")
+			Else
+				p_Cramf(extra, 0, 2)
+				p_Prout(" expended on empty space.")
+			EndIf
+		EndIf
+	EndIf
+
+	If automode = 2
+		; FORCEMAN -- falls through to MANUAL
+		p_Chew()
+		key = IHEOL
+		If damage[DCOMPTR] <> 0
+			p_Prout("~r~Battle computer damaged, manual fire only~w~.")
+		Else
+			p_Skip(1)
+			p_Prouts("~m~---WORKING---~w~")
+			p_Skip(1)
+			p_Prout("~y~Short-range-sensors-damaged")
+			p_Prout("Insufficient-data-for-automatic-phaser-fire")
+			p_Prout("Manual-fire-must-be-used~w~")
+			p_Skip(1)
+		EndIf
+		automode = 1
+	EndIf
+
+	If automode = 1
+		; MANUAL
+		rpow = 0.0
+		k = 1
+		While k <= a.nenhere
+			ii = kx[k]
+			jj = ky[k]
+			ienm = quad[ii][jj]
+			handled = False
+			If msgflag <> 0
+				p_Proutn("Energy available= ")
+				p_Cramf(a.energy - 0.006 - fastcost, 0, 2)
+				p_Skip(1)
+				msgflag = 0
+				rpow = 0.0
+			EndIf
+			If (damage[DSRSENS] <> 0) And (((Abs(a.sectx - ii) < 2) And (Abs(a.secty - jj) < 2)) = False) And ((ienm = IHC) Or (ienm = IHS))
+				p_Cramen(ienm)
+				p_Prout(" can't be located without short range scan.")
+				p_Chew()
+				key = IHEOL
+				hits[k] = 0   ; prevent overflow -- thanks to Alexei Voitenko
+				k = k + 1
+				handled = True
+			EndIf
+			If handled = False
+				If key = IHEOL
+					p_Chew()
+					If (ipoop <> 0) And (k > kz)
+						irec = Int((Abs(kpower[k]) / (phasefac * p_Pow(0.9, kdist[k]))) * (1.01 + 0.05 * p_Rand()) + 1.0)
+						kz = k
+						p_Proutn("(")
+						p_Crami(irec, 1)
+						p_Proutn(")  ")
+					EndIf
+					p_Proutn("units to fire at ")
+					p_Crmena(0, ienm, 2, ii, jj)
+					p_Proutn("-  ")
+					key = p_Scan()
+				EndIf
+				If key = IHALPHA
+					If p_Isit("no")
+						no = 1
+						key = p_Scan()
+						handled = True
+					EndIf
+				EndIf
+			EndIf
+			If handled = False
+				If key = IHALPHA
+					p_Huh()
+					a.ididit = 0
+					Return
+				EndIf
+				If key = IHEOL
+					If k = 1   ; let me say I'm baffled by this
+						msgflag = 1
+					EndIf
+					handled = True
+				EndIf
+			EndIf
+			If handled = False
+				If aaitem < 0
+					; abort out
+					a.ididit = 0
+					p_Chew()
+					Return
+				EndIf
+				hits[k] = aaitem
+				rpow = rpow + aaitem
+				; if total requested is too much, inform and start over
+				If rpow >= a.energy - fastcost
+					p_Prout("Available energy exceeded -- try again.")
+					p_Chew()
+					key = IHEOL
+					k = 1
+					msgflag = 1
+				Else
+					key = p_Scan()   ; scan for next value
+					k = k + 1
+				EndIf
+			EndIf
+		Wend
+		If rpow = 0.0
+			; zero energy -- abort
+			a.ididit = 0
+			p_Chew()
+			Return
+		EndIf
+		If key = IHALPHA
+			If p_Isit("no")
+				no = 1
+			EndIf
+		EndIf
+		a.energy = a.energy - rpow
+		p_Chew()
+		If ifast <> 0
+			a.energy = a.energy - 200.0
+			If p_Checkshctrl(rpow) <> 0
+				Return
+			EndIf
+		EndIf
+		p_Hittem(hits)
+		a.ididit = 1
+	EndIf
+	; say shield raised or malfunction, if necessary
+	If a.alldone <> 0
+		Return
+	EndIf
+	If ifast <> 0
+		p_Skip(1)
+		If no = 0
+			If p_Rand() >= 0.99
+				p_Prout("~r~Sulu~w~-  \"Sir, the high-speed shield control has malfunctioned . . .")
+				p_Prouts("         CLICK   CLICK   POP  . . .")
+				p_Prout(" No  response, sir!")
+				a.shldup = 0
+			Else
+				p_Prout("Shields raised.")
+			EndIf
+		Else
+			a.shldup = 0
+		EndIf
+	EndIf
+	p_Overheat(rpow)
+EndFunction
+
+Function p_Hittem(hits)
+	Local kp, kpow, wham, hit, dustfac, kpini, k, ii, jj, ienm
+	Local nenhr2 = a.nenhere
+	Local kk = 1
+
+	p_Skip(1)
+
+	For k = 1 To nenhr2
+		wham = hits[k]
+		If wham <> 0
+			dustfac = 0.9 + 0.01 * p_Rand()
+			hit = wham * p_Pow(dustfac, kdist[kk])
+			kpini = kpower[kk]
+			kp = Abs(kpini)
+			If phasefac * hit < kp
+				kp = phasefac * hit
+			EndIf
+			If kpower[kk] < 0
+				kpower[kk] = kpower[kk] + kp
+			Else
+				kpower[kk] = kpower[kk] - kp
+			EndIf
+			kpow = kpower[kk]
+			ii = kx[kk]
+			jj = ky[kk]
+			p_FxBeam(a.sectx, a.secty, ii, jj, $40A0FF)
+			If hit > 0.005
+				p_Cramf(hit, 0, 2)
+				p_Proutn(" unit hit on ")
+			Else
+				p_Proutn("Very small hit on ")
+			EndIf
+			ienm = quad[ii][jj]
+			p_Crmena(0, ienm, 2, ii, jj)
+			p_Skip(1)
+			If kpow = 0
+				p_Deadkl(ii, jj, ienm, ii, jj)
+				If d.remkl = 0
+					p_Finish(FWON)
+				EndIf
+				If a.alldone <> 0
+					Return
+				EndIf
+				kk = kk - 1   ; don't do the increment
+			ElseIf kpow > 0
+				; decide whether or not to emasculate klingon
+				If p_Rand() >= 0.9
+					If kpow <= ((0.4 + 0.4 * p_Rand()) * kpini)
+						p_Proutn("~y~***~b~Mr. Spock~w~-  \"Captain, the vessel at")
+						p_Cramlc(2, ii, jj)
+						p_Skip(1)
+						p_Prout("   has just lost its firepower.\"")
+						kpower[kk] = -kpow
+					EndIf
+				EndIf
+			EndIf
+		EndIf
+		kk = kk + 1
+	Next
+EndFunction
+
+/*
+** Ask a Klingon To Surrender (from the BSD version)
+**
+** The Subspace Radio is needed to ask a Klingon if he will kindly
+** surrender. The weakest Klingon in the quadrant is chosen.
+*/
+Function p_Capture()
+	Local i, k, x
+
+	a.ididit = 0   ; nothing if we fail
+	a.time = 0.0
+
+	; make sure there is room in the brig
+	If d.brigfree = 0
+		p_Prout("Security reports the brig is already full.")
+		Return
+	EndIf
+
+	If p_Reports() = False
+		p_Prout("~r~Uhura~w~- \"We have no subspace radio communication, sir.\"")
+		Return
+	EndIf
+
+	If damage[DTRANSP] <> 0
+		p_Prout("~r~Scotty~w~- \"Transporter damaged, sir.\"")
+		Return
+	EndIf
+
+	; find out if there are any at all
+	If a.klhere < 1
+		p_Prout("~r~Uhura~w~- \"Getting no response, sir.\"")
+		Return
+	EndIf
+
+	; if there is more than one Klingon, find out which one
+	k = p_Selectklingon()
+	a.time = 0.05   ; this action will take some time
+	a.ididit = 1    ; so any others can strike back
+
+	x = a.energy
+	x = x / (kpower[k] * a.nenhere)
+	x = x * 2.5
+	i = Int(x)
+	If i > 100 * p_Rand()
+		; guess what, he surrendered!!!
+		p_Prout("Klingon captain at " .. kx[k] .. "," .. ky[k] .. " surrenders")
+		i = Int(200 * p_Rand())
+		If i > 0
+			p_Prout("~g~" .. (200 - i) .. "~w~ Klingons commit suicide rather than be taken captive")
+		EndIf
+		If i > d.brigfree
+			p_Prout("~g~" .. (i - d.brigfree) .. "~w~ Klingons die because there is no room for them in the brig.")
+			i = d.brigfree
+		EndIf
+		d.brigfree = d.brigfree - i
+		p_Prout("~g~" .. i .. "~w~ captives taken")
+		p_Deadkl(kx[k], ky[k], quad[kx[k]][ky[k]], kx[k], ky[k])
+		If d.remkl = 0
+			p_Finish(FWON)
+		EndIf
+		Return
+	EndIf
+
+	; big surprise, he refuses to surrender
+	p_Prout("Fat chance, captain")
+EndFunction
+
+; select the weakest Klingon (Tom Almy mod)
+Function p_Selectklingon()
+	Local i = 1
+	Local pw, j
+	If a.nenhere >= 2
+		pw = 1000000
+		For j = 1 To a.nenhere
+			If quad[kx[j]][ky[j]] <> IHR
+				If kpower[j] < pw
+					pw = kpower[j]
+					i = j
+				EndIf
+			EndIf
+		Next
+	EndIf
+	Return(i)
+EndFunction

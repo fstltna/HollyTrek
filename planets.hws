@@ -1,0 +1,517 @@
+/*
+** planets.hws -- Super Star Trek for Hollywood
+** planets, orbit, sensors, transporter, mining, crystals, shuttle
+** craft and the experimental death ray
+*/
+
+Function p_Pclass(c)
+	If c = 1
+		Return("M")
+	ElseIf c = 2
+		Return("N")
+	ElseIf c = 3
+		Return("O")
+	EndIf
+	Return("")
+EndFunction
+
+Function p_ConsumeTime()
+	; I think most of this avoidance was caused by overlay scheme.
+	; Let's see what happens if all events can occur here
+	a.ididit = 1
+	p_Events()
+	; fails if game over, quadrant super-novas or we've moved to new quadrant
+	If (a.alldone <> 0) Or (d.galaxy[a.quadx][a.quady] = 1000) Or (a.justin <> 0)
+		Return(1)
+	EndIf
+	Return(0)
+EndFunction
+
+Function p_Preport()
+	Local iknow = 0
+	Local i
+	p_Skip(1)
+	p_Chew()
+	p_Prout("~b~Spock~w~-  \"Planet report follows, Captain.\"")
+	p_Skip(1)
+	For i = 1 To a.inplan
+		If d.plnets[i].known <> 0
+			iknow = 1
+			p_Cramlc(1, d.plnets[i].x, d.plnets[i].y)
+			p_Proutn("   class ")
+			p_Proutn(p_Pclass(d.plnets[i].pclass))
+			p_Proutn("   ")
+			If d.plnets[i].crystals = 0
+				p_Proutn("no ")
+			EndIf
+			p_Prout("dilithium crystals present.")
+			If d.plnets[i].known = 2
+				p_Prout("    Shuttle Craft Galileo on surface.")
+			EndIf
+		EndIf
+	Next
+	If iknow = 0
+		p_Prout("No information available.")
+	EndIf
+EndFunction
+
+Function p_Orbit()
+	p_Skip(1)
+	p_Chew()
+	a.ididit = 0
+	If a.inorbit <> 0
+		p_Prout("Already in standard orbit.")
+		Return
+	EndIf
+	If (damage[DWARPEN] <> 0) And (damage[DIMPULS] <> 0)
+		p_Prout("Both warp and impulse engines damaged.")
+		Return
+	EndIf
+	If (a.plnetx = 0) Or (Abs(a.sectx - a.plnetx) > 1) Or (Abs(a.secty - a.plnety) > 1)
+		p_Crmship()
+		p_Prout(" not adjacent to planet.\n")
+		Return
+	EndIf
+	a.time = 0.02 + 0.03 * p_Rand()
+	p_Prout("~r~Helmsman Sulu~w~-  \"Entering standard orbit, Sir.\"")
+	p_Newcnd()
+	If p_ConsumeTime() <> 0
+		Return
+	EndIf
+	a.height = Int(1400.0 + 7200.0 * p_Rand())   ; an int in the original
+	p_Proutn("~r~Sulu~w~-  \"Entered orbit at altitude ~g~")
+	p_Cramf(a.height, 0, 2)
+	p_Prout("~w~ kilometers.\"")
+	a.inorbit = 1
+EndFunction
+
+Function p_Sensor()
+	p_Skip(1)
+	p_Chew()
+	If damage[DSRSENS] <> 0.0
+		p_Prout("Short range sensors damaged.")
+		Return
+	EndIf
+	If a.plnetx = 0
+		p_Prout("No planet in this quadrant.")
+		Return
+	EndIf
+	p_Proutn("~b~Spock~w~-  \"Sensor scan for")
+	p_Cramlc(1, a.quadx, a.quady)
+	p_Prout("-")
+	p_Skip(1)
+	p_Proutn("         Planet at")
+	p_Cramlc(2, a.plnetx, a.plnety)
+	p_Proutn(" is of class ")
+	p_Proutn(p_Pclass(d.plnets[a.iplnet].pclass))
+	p_Prout(".")
+	If d.plnets[a.iplnet].known = 2
+		p_Prout("         Sensors show Galileo still on surface.")
+	EndIf
+	p_Proutn("         Readings indicate")
+	If d.plnets[a.iplnet].crystals = 0
+		p_Proutn(" no")
+	EndIf
+	p_Prout(" dilithium crystals present.\"")
+	If d.plnets[a.iplnet].known = 0
+		d.plnets[a.iplnet].known = 1
+	EndIf
+EndFunction
+
+Function p_Beam()
+	p_Chew()
+	p_Skip(1)
+	If damage[DTRANSP] <> 0
+		p_Prout("Transporter damaged.")
+		If (damage[DSHUTTL] = 0) And ((d.plnets[a.iplnet].known = 2) Or (a.iscraft = 1))
+			p_Skip(1)
+			p_Prout("~b~Spock~w~-  \"May I suggest the shuttle craft, Sir?\" ")
+			If p_Ja()
+				p_Shuttle()
+			EndIf
+		EndIf
+		Return
+	EndIf
+	If a.inorbit = 0
+		p_Crmship()
+		p_Prout(" not in standard orbit.")
+		Return
+	EndIf
+	If a.shldup <> 0
+		p_Prout("Impossible to transport through shields.")
+		Return
+	EndIf
+	If d.plnets[a.iplnet].known = 0
+		p_Prout("~b~Spock~w~-  \"Captain, we have no information on this planet")
+		p_Prout("  and Starfleet Regulations clearly state that in this situation")
+		p_Prout("  you may not go down.\"")
+		Return
+	EndIf
+	If a.landed = 1
+		; coming from planet
+		If d.plnets[a.iplnet].known = 2
+			p_Proutn("~b~Spock~w~-  \"Wouldn't you rather take the Galileo?\" ")
+			If p_Ja()
+				p_Chew()
+				Return
+			EndIf
+			p_Prout("Your crew hides the Galileo to prevent capture by aliens.")
+		EndIf
+		p_Prout("Landing party assembled, ready to beam up.")
+		p_Skip(1)
+		p_Prout("Kirk whips out communicator...")
+		p_Prouts("BEEP  BEEP  BEEP")
+		p_Skip(2)
+		p_Prout("\"Kirk to enterprise-  Lock on coordinates...energize.\"")
+	Else
+		; going to planet
+		If d.plnets[a.iplnet].crystals = 0
+			p_Prout("~b~Spock~w~-  \"Captain, I fail to see the logic in")
+			p_Prout("  exploring a planet with no dilithium crystals.")
+			p_Proutn("  Are you sure this is wise?\" ")
+			If p_Ja() = False
+				p_Chew()
+				Return
+			EndIf
+		EndIf
+		p_Prout("~r~Scotty~w~-  \"Transporter room ready, Sir.\"")
+		p_Skip(1)
+		p_Prout("Kirk, and landing party prepare to beam down to planet surface.")
+		p_Skip(1)
+		p_Prout("~y~Kirk~w~-  \"Energize.\"")
+	EndIf
+	p_Skip(1)
+	p_Prouts("WWHOOOIIIIIRRRRREEEE.E.E.  .  .  .  .   .    .")
+	p_Skip(2)
+	If p_Rand() > 0.98
+		p_Prouts("BOOOIIIOOOIIOOOOIIIOIING . . .")
+		p_Skip(2)
+		p_Prout("~r~Scotty~w~-  \"Oh my God!  I've lost them.\"")
+		p_Finish(FLOST)
+		Return
+	EndIf
+	p_Prouts(".    .   .  .  .  .  .E.E.EEEERRRRRIIIIIOOOHWW")
+	p_Skip(2)
+	p_Prout("Transport complete.")
+	a.landed = -a.landed
+	If (a.landed = 1) And (d.plnets[a.iplnet].known = 2)
+		p_Prout("The shuttle craft Galileo is here!")
+	EndIf
+	If (a.landed <> 1) And (a.imine = 1)
+		a.icrystl = 1
+		a.cryprob = 0.05
+	EndIf
+	a.imine = 0
+EndFunction
+
+Function p_Mine()
+	a.ididit = 0
+	p_Skip(1)
+	p_Chew()
+	If a.landed <> 1
+		p_Prout("Mining party not on planet.")
+		Return
+	EndIf
+	If d.plnets[a.iplnet].crystals = 0
+		p_Prout("No dilithium crystals on this planet.")
+		Return
+	EndIf
+	If a.imine = 1
+		p_Prout("You've already mined enough crystals for this trip.")
+		Return
+	EndIf
+	If (a.icrystl = 1) And (a.cryprob = 0.05)
+		p_Proutn("With all those fresh crystals aboard the ")
+		p_Crmship()
+		p_Skip(1)
+		p_Prout("there's no reason to mine more at this time.")
+		Return
+	EndIf
+	a.time = (0.1 + 0.2 * p_Rand()) * d.plnets[a.iplnet].pclass
+	If p_ConsumeTime() <> 0
+		Return
+	EndIf
+	p_Prout("Mining operation complete.")
+	a.imine = 1
+EndFunction
+
+Function p_Usecrystals()
+	p_Skip(1)
+	p_Chew()
+	If a.icrystl <> 1
+		p_Prout("No dilithium crystals available.")
+		Return
+	EndIf
+	If a.energy >= 1000
+		p_Prout("~b~Spock~w~-  \"Captain, Starfleet Regulations prohibit such an operation")
+		p_Prout("  except when condition Yellow exists.")
+		Return
+	EndIf
+	p_Prout("~b~Spock~w~- \"Captain, I must warn you that loading")
+	p_Prout("  raw dilithium crystals into the ship's power")
+	p_Prout("  system may risk a severe explosion.")
+	p_Proutn("  Are you sure this is wise?\" ")
+	If p_Ja() = False
+		p_Chew()
+		Return
+	EndIf
+	p_Skip(1)
+	p_Prout("~r~Engineering Officer Scott~w~-  \"(GULP) Aye Sir.")
+	p_Prout("  Mr. Spock and I will try it.\"")
+	p_Skip(1)
+	p_Prout("~b~Spock~w~-  \"Crystals in place, Sir.")
+	p_Prout("  Ready to activate circuit.\"")
+	p_Skip(1)
+	p_Prouts("~r~Scotty~w~-  \"Keep your fingers crossed, Sir!\"")
+	p_Skip(1)
+	If p_Rand() <= a.cryprob
+		p_Prouts("  \"Activating now! - - No good!  It's***")
+		p_Skip(2)
+		p_Prouts("***RED ALERT!  RED A*L********************************")
+		p_Skip(1)
+		p_Stars()
+		p_Prouts("******************   KA-BOOM!!!!   *******************")
+		p_Skip(1)
+		p_Kaboom()
+		Return
+	EndIf
+	a.energy = a.energy + 5000.0 * (1.0 + 0.9 * p_Rand())
+	p_Prouts("  \"Activating now! - - ")
+	p_Prout("The instruments")
+	p_Prout("   are going crazy, but I think it's")
+	p_Prout("   going to work!!  Congratulations, Sir!\"")
+	a.cryprob = a.cryprob * 2.0
+EndFunction
+
+Function p_Shuttle()
+	p_Chew()
+	p_Skip(1)
+	a.ididit = 0
+	If damage[DSHUTTL] <> 0.0
+		If damage[DSHUTTL] = -1.0
+			If (a.inorbit <> 0) And (d.plnets[a.iplnet].known = 2)
+				p_Prout("Ye Faerie Queene has no shuttle craft bay to dock it at.")
+			Else
+				p_Prout("Ye Faerie Queene had no shuttle craft.")
+			EndIf
+		ElseIf damage[DSHUTTL] > 0
+			p_Prout("The Galileo is damaged.")
+		Else
+			p_Prout("Shuttle craft is now serving Big Mac's.")
+		EndIf
+		Return
+	EndIf
+	If a.inorbit = 0
+		p_Crmship()
+		p_Prout(" not in standard orbit.")
+		Return
+	EndIf
+	If (d.plnets[a.iplnet].known <> 2) And (a.iscraft <> 1)
+		p_Prout("Shuttle craft not currently available.")
+		Return
+	EndIf
+	If (a.landed = -1) And (d.plnets[a.iplnet].known = 2)
+		p_Prout("You will have to beam down to retrieve the shuttle craft.")
+		Return
+	EndIf
+	If (a.shldup <> 0) Or (a.condit = IHDOCKED)
+		p_Prout("Shuttle craft cannot pass through shields.")
+		Return
+	EndIf
+	If d.plnets[a.iplnet].known = 0
+		p_Prout("~b~Spock~w~-  \"Captain, we have no information on this planet")
+		p_Prout("  and Starfleet Regulations clearly state that in this situation")
+		p_Prout("  you may not fly down.\"")
+		Return
+	EndIf
+	a.time = 0.00003 * a.height
+	If a.time >= 0.8 * d.remtime
+		p_Prout("~b~First Officer Spock~w~-  \"Captain, I compute that such")
+		p_Prout("  a maneuver would require approximately ")
+		p_Cramf(100 * a.time / d.remtime, 0, 4)
+		p_Prout("% of our")
+		p_Prout("remaining time.")
+		p_Prout("Are you sure this is wise?\" ")
+		If p_Ja() = False
+			a.time = 0.0
+			Return
+		EndIf
+	EndIf
+	If a.landed = 1
+		; Kirk on planet
+		If a.iscraft = 1
+			; Galileo on ship!
+			If damage[DTRANSP] = 0
+				p_Proutn("~b~Spock~w~-  \"Would you rather use the transporter?\" ")
+				If p_Ja()
+					p_Beam()
+					Return
+				EndIf
+				p_Proutn("Shuttle crew")
+			Else
+				p_Proutn("Rescue party")
+			EndIf
+			p_Prout(" boards Galileo and swoops toward planet surface.")
+			a.iscraft = 0
+			p_Skip(1)
+			If p_ConsumeTime() <> 0
+				Return
+			EndIf
+			d.plnets[a.iplnet].known = 2
+			p_Prout("Trip complete.")
+			Return
+		Else
+			; ready to go back to ship
+			p_Prout("You and your mining party board the")
+			p_Prout("shuttle craft for the trip back to the Enterprise.")
+			p_Skip(1)
+			p_Prout("The short hop begins . . .")
+			d.plnets[a.iplnet].known = 1
+			a.icraft = 1
+			p_Skip(1)
+			a.landed = -1
+			If p_ConsumeTime() <> 0
+				Return
+			EndIf
+			a.iscraft = 1
+			a.icraft = 0
+			If a.imine <> 0
+				a.icrystl = 1
+				a.cryprob = 0.05
+			EndIf
+			a.imine = 0
+			p_Prout("Trip complete.")
+			Return
+		EndIf
+	Else
+		; Kirk on ship and so is Galileo
+		p_Prout("Mining party assembles in the hangar deck,")
+		p_Prout("ready to board the shuttle craft \"Galileo\".")
+		p_Skip(1)
+		p_Prouts("The hangar doors open; the trip begins.")
+		p_Skip(1)
+		a.icraft = 1
+		a.iscraft = 0
+		If p_ConsumeTime() <> 0
+			Return
+		EndIf
+		d.plnets[a.iplnet].known = 2
+		a.landed = 1
+		a.icraft = 0
+		p_Prout("Trip complete")
+	EndIf
+EndFunction
+
+Function p_Deathray()
+	Local r = p_Rand()
+	Local i, j
+
+	a.ididit = 0
+	p_Skip(1)
+	p_Chew()
+	If a.ship <> IHE
+		p_Prout("Ye Faerie Queene has no death ray.")
+		Return
+	EndIf
+	If a.nenhere = 0
+		p_Prout("~r~Sulu~w~-  \"But Sir, there are no enemies in this quadrant.\"")
+		Return
+	EndIf
+	If damage[DDRAY] > 0.0
+		p_Prout("Death Ray is damaged.")
+		Return
+	EndIf
+	p_Prout("~b~Spock~w~-  \"Captain, the 'Experimental Death Ray'")
+	p_Prout("  is highly unpredictable.  Considering the alternatives,")
+	p_Prout("  are you sure this is wise?\" ")
+	If p_Ja() = False
+		Return
+	EndIf
+	p_Prout("~b~Spock~w~-  \"Acknowledged.\"")
+	p_Skip(1)
+	a.ididit = 1
+	p_Prouts("WHOOEE ... WHOOEE ... WHOOEE ... WHOOEE")
+	p_Skip(1)
+	p_Prout("Crew scrambles in emergency preparation.")
+	p_Prout("Spock and Scotty ready the death ray and")
+	p_Prout("prepare to channel all ship's power to the device.")
+	p_Skip(1)
+	p_Prout("~b~Spock~w~-  \"Preparations complete, sir.\"")
+	p_Prout("~y~Kirk~w~-  \"Engage!\"")
+	p_Skip(1)
+	p_Prouts("WHIRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR")
+	p_Skip(1)
+	If r > 0.30
+		p_Prouts("~r~Sulu~w~- \"Captain!  It's working!\"")
+		p_Skip(2)
+		While a.nenhere > 0
+			p_FxBeam(a.sectx, a.secty, kx[1], ky[1], $FF40FF)
+			p_Deadkl(kx[1], ky[1], quad[kx[1]][ky[1]], kx[1], ky[1])
+		Wend
+		p_Prout("~y~Ensign Chekov~w~-  \"Congratulations, Captain!\"")
+		If d.remkl = 0
+			p_Finish(FWON)
+		EndIf
+		p_Prout("~b~Spock~w~-  \"Captain, I believe the `Experimental Death Ray'")
+		If p_Rand() <= 0.05
+			p_Prout("   is still operational.\"")
+		Else
+			p_Prout("   has been rendered dysfunctional.\"")
+			damage[DDRAY] = 39.95
+		EndIf
+		Return
+	EndIf
+	r = p_Rand()   ; pick failure method
+	If r <= 0.30
+		p_Prouts("~r~Sulu~w~- \"Captain!  It's working!\"")
+		p_Skip(1)
+		p_Prouts("***RED ALERT!  RED ALERT!")
+		p_Skip(1)
+		p_Prout("***MATTER-ANTIMATTER IMPLOSION IMMINENT!")
+		p_Skip(1)
+		p_Prouts("***RED ALERT!  RED A*L********************************")
+		p_Skip(1)
+		p_Stars()
+		p_Prouts("******************   KA-BOOM!!!!   *******************")
+		p_Skip(1)
+		p_Kaboom()
+		Return
+	EndIf
+	If r <= 0.55
+		p_Prouts("~r~Sulu~w~- \"Captain!  Yagabandaghangrapl, brachriigringlanbla!\"")
+		p_Skip(1)
+		p_Prout("~r~Lt. Uhura~w~-  \"Graaeek!  Graaeek!\"")
+		p_Skip(1)
+		p_Prout("~b~Spock~w~-  \"Fascinating!  . . . All humans aboard")
+		p_Prout("  have apparently been transformed into strange mutations.")
+		p_Prout("  Vulcans do not seem to be affected.")
+		p_Skip(1)
+		p_Prout("~y~Kirk~w~-  \"Raauch!  Raauch!\"")
+		p_Finish(FDRAY)
+		Return
+	EndIf
+	If r <= 0.75
+		p_Prouts("~r~Sulu~w~- \"Captain!  It's   --WHAT?!?!\"")
+		p_Skip(2)
+		p_Proutn("~b~Spock~w~-  \"I believe the word is")
+		p_Prouts(" *ASTONISHING*")
+		p_Prout(" Mr. Sulu.")
+		For i = 1 To 10
+			For j = 1 To 10
+				If quad[i][j] = IHDOT
+					quad[i][j] = IHQUEST
+				EndIf
+			Next
+		Next
+		p_Prout("  Captain, our quadrant is now infested with")
+		p_Prouts(" - - - - - -  *THINGS*.")
+		p_Skip(1)
+		p_Prout("  I have no logical explanation.\"")
+		Return
+	EndIf
+	p_Prouts("~r~Sulu~w~- \"Captain!  The Death Ray is creating tribbles!\"")
+	p_Skip(1)
+	p_Prout("~r~Scotty~w~-  \"There are so many tribbles down here")
+	p_Prout("  in Engineering, we can't move for 'em, Captain.\"")
+	p_Finish(FTRIBBLE)
+EndFunction

@@ -1,0 +1,694 @@
+/*
+** ai.hws -- Super Star Trek for Hollywood
+** enemy movement, the Super-commander and the Tholian
+*/
+
+Function p_Tryexit(lookx, looky, ienm, loccom, irun)
+	Local iqx, iqy, l
+
+	iqx = a.quadx + Int((lookx + 9) / 10) - 1
+	iqy = a.quady + Int((looky + 9) / 10) - 1
+	If (iqx < 1) Or (iqx > 8) Or (iqy < 1) Or (iqy > 8)
+		Return(0)   ; no can do -- neg energy
+	EndIf
+	If d.galaxy[iqx][iqy] > 899
+		Return(0)   ; supernovae, or >8 Klingons
+	EndIf
+	If ienm = IHR
+		Return(0)   ; Romulans cannot escape!
+	EndIf
+	If irun = 0
+		; avoid intruding on another commander's territory
+		If ienm = IHC
+			For l = 1 To d.remcom
+				If (d.cx[l] = iqx) And (d.cy[l] = iqy)
+					Return(0)
+				EndIf
+			Next
+			; refuse to leave if currently attacking starbase
+			If (a.batx = a.quadx) And (a.baty = a.quady)
+				Return(0)
+			EndIf
+		EndIf
+		; don't leave if over 1000 units of energy
+		If kpower[loccom] > 1000.0
+			Return(0)
+		EndIf
+	EndIf
+	; print escape message and move out of quadrant.
+	; we know this if either short or long range sensors are working
+	If (damage[DSRSENS] = 0.0) Or (damage[DLRSENS] = 0.0) Or (a.condit = IHDOCKED)
+		p_Proutn("***")
+		p_Cramen(ienm)
+		p_Proutn(" escapes to")
+		p_Cramlc(1, iqx, iqy)
+		p_Prout(" (and regains strength).")
+	EndIf
+	; handle local matters related to escape
+	kx[loccom] = kx[a.nenhere]
+	ky[loccom] = ky[a.nenhere]
+	kavgd[loccom] = kavgd[a.nenhere]
+	kpower[loccom] = kpower[a.nenhere]
+	kdist[loccom] = kdist[a.nenhere]
+	a.klhere = a.klhere - 1
+	a.nenhere = a.nenhere - 1
+	If a.condit <> IHDOCKED
+		p_Newcnd()
+	EndIf
+	; handle global matters related to escape
+	d.galaxy[a.quadx][a.quady] = d.galaxy[a.quadx][a.quady] - 100
+	d.galaxy[iqx][iqy] = d.galaxy[iqx][iqy] + 100
+	If ienm = IHS
+		a.ishere = 0
+		a.iscate = 0
+		a.ientesc = 0
+		a.isatb = 0
+		future[FSCMOVE] = 0.2777 + d.date
+		future[FSCDBAS] = INF
+		d.isx = iqx
+		d.isy = iqy
+	Else
+		For l = 1 To d.remcom
+			If (d.cx[l] = a.quadx) And (d.cy[l] = a.quady)
+				d.cx[l] = iqx
+				d.cy[l] = iqy
+			EndIf
+		Next
+		a.comhere = 0
+	EndIf
+	Return(1)   ; success
+EndFunction
+
+Function p_Movebaddy(comx, comy, loccom, ienm)
+	Local motion, mdist, nsteps, mx, my, nextx, nexty, lookx, looky, ll
+	Local krawlx, krawly, success, attempts, dist1, forces, nbaddys, done, stopinner, r
+	Local irun = 0
+
+	; this should probably be just comhere + ishere
+	If a.skill > SGOOD
+		nbaddys = Int((a.comhere * 2 + a.ishere * 2 + a.klhere * 1.23 + a.irhere * 1.5) / 2.0)
+	Else
+		nbaddys = a.comhere + a.ishere
+	EndIf
+
+	dist1 = kdist[loccom]
+	mdist = Int(dist1 + 0.5)   ; nearest integer distance
+
+	; if SC, check with spy to see if should hi-tail it
+	If (ienm = IHS) And ((kpower[loccom] <= 500.0) Or ((a.condit = IHDOCKED) And (damage[DPHOTON] = 0)))
+		irun = 1
+		motion = -10
+	Else
+		; decide whether to advance, retreat, or hold position
+		; (see the C source for the description of the algorithm)
+		forces = kpower[loccom] + 100.0 * a.nenhere + 400 * (nbaddys - 1)
+		If a.shldup = 0
+			forces = forces + 1000   ; good for enemy if shield is down!
+		EndIf
+		If (damage[DPHASER] = 0.0) Or (damage[DPHOTON] = 0.0)
+			If damage[DPHASER] <> 0
+				forces = forces + 300.0   ; phasers damaged
+			Else
+				forces = forces - 0.2 * (a.energy - 2500.0)
+			EndIf
+			If damage[DPHOTON] <> 0
+				forces = forces + 300.0   ; photon torpedoes damaged
+			Else
+				forces = forces - 50.0 * a.torps
+			EndIf
+		Else
+			; phasers and photon tubes both out!
+			forces = forces + 1000.0
+		EndIf
+		motion = 0
+		If (forces <= 1000.0) And (a.condit <> IHDOCKED)
+			; typical situation
+			motion = Int(((forces + 200.0 * p_Rand()) / 150.0) - 5.0)
+		Else
+			If forces > 1000.0
+				; very strong -- move in for kill
+				r = p_Rand()
+				motion = Int((1.0 - r * r) * dist1 + 1.0)
+			EndIf
+			If a.condit = IHDOCKED
+				; protected by base -- back off !
+				r = p_Rand()
+				motion = Int(motion - a.skill * (2.0 - r * r))
+			EndIf
+		EndIf
+		; don't move if no motion
+		If motion = 0
+			Return
+		EndIf
+		; limit motion according to skill
+		If Abs(motion) > a.skill
+			If motion < 0
+				motion = -a.skill
+			Else
+				motion = a.skill
+			EndIf
+		EndIf
+	EndIf
+	; calculate preferred number of steps
+	nsteps = Abs(motion)
+	If (motion > 0) And (nsteps > mdist)
+		nsteps = mdist   ; don't overshoot
+	EndIf
+	If nsteps > 10
+		nsteps = 10
+	EndIf
+	If nsteps < 1
+		nsteps = 1
+	EndIf
+	; compute preferred values of delta X and Y
+	mx = a.sectx - comx
+	my = a.secty - comy
+	If 2.0 * Abs(mx) < Abs(my)
+		mx = 0
+	EndIf
+	If 2.0 * Abs(my) < Abs(a.sectx - comx)
+		my = 0
+	EndIf
+	If mx <> 0
+		If mx * motion < 0
+			mx = -1
+		Else
+			mx = 1
+		EndIf
+	EndIf
+	If my <> 0
+		If my * motion < 0
+			my = -1
+		Else
+			my = 1
+		EndIf
+	EndIf
+	nextx = comx
+	nexty = comy
+	quad[comx][comy] = IHDOT
+	; main move loop
+	ll = 1
+	done = False
+	While (ll <= nsteps) And (done = False)
+		; check if preferred position available
+		lookx = nextx + mx
+		looky = nexty + my
+		If mx < 0
+			krawlx = 1
+		Else
+			krawlx = -1
+		EndIf
+		If my < 0
+			krawly = 1
+		Else
+			krawly = -1
+		EndIf
+		success = 0
+		attempts = 0   ; settle mysterious hang problem
+		stopinner = False
+		While (attempts < 20) And (success = 0) And (stopinner = False)
+			attempts = attempts + 1
+			If (lookx < 1) Or (lookx > 10)
+				If motion < 0
+					If p_Tryexit(lookx, looky, ienm, loccom, irun) <> 0
+						Return
+					EndIf
+				EndIf
+				If (krawlx = mx) Or (my = 0)
+					stopinner = True
+				Else
+					lookx = nextx + krawlx
+					krawlx = -krawlx
+				EndIf
+			ElseIf (looky < 1) Or (looky > 10)
+				If motion < 0
+					If p_Tryexit(lookx, looky, ienm, loccom, irun) <> 0
+						Return
+					EndIf
+				EndIf
+				If (krawly = my) Or (mx = 0)
+					stopinner = True
+				Else
+					looky = nexty + krawly
+					krawly = -krawly
+				EndIf
+			ElseIf quad[lookx][looky] <> IHDOT
+				; see if we should ram ship
+				If (quad[lookx][looky] = a.ship) And ((ienm = IHC) Or (ienm = IHS))
+					p_Ram(1, ienm, comx, comy)
+					Return
+				EndIf
+				If (krawlx <> mx) And (my <> 0)
+					lookx = nextx + krawlx
+					krawlx = -krawlx
+				ElseIf (krawly <> my) And (mx <> 0)
+					looky = nexty + krawly
+					krawly = -krawly
+				Else
+					stopinner = True   ; we have failed
+				EndIf
+			Else
+				success = 1
+			EndIf
+		Wend
+		If success <> 0
+			nextx = lookx
+			nexty = looky
+		Else
+			done = True   ; done early
+		EndIf
+		ll = ll + 1
+	Wend
+	; put commander in place within same quadrant
+	quad[nextx][nexty] = ienm
+	If (nextx <> comx) Or (nexty <> comy)
+		; it moved
+		kx[loccom] = nextx
+		ky[loccom] = nexty
+		kdist[loccom] = Sqrt(p_Sq(a.sectx - nextx) + p_Sq(a.secty - nexty))
+		kavgd[loccom] = kdist[loccom]
+		If (damage[DSRSENS] = 0) Or (a.condit = IHDOCKED)
+			p_Proutn("***")
+			p_Cramen(ienm)
+			If kdist[loccom] < dist1
+				p_Proutn(" advances to")
+			Else
+				p_Proutn(" retreats to")
+			EndIf
+			p_Cramlc(2, nextx, nexty)
+			p_Skip(1)
+		EndIf
+	EndIf
+EndFunction
+
+Function p_Movcom()
+	Local ix, iy, i, done
+
+	; figure out which Klingon is the commander (or Supercommander)
+	; and do move
+	If a.comhere <> 0
+		done = False
+		For i = 1 To a.nenhere
+			If done = False
+				ix = kx[i]
+				iy = ky[i]
+				If quad[ix][iy] = IHC
+					p_Movebaddy(ix, iy, i, IHC)
+					done = True
+				EndIf
+			EndIf
+		Next
+	EndIf
+	If a.ishere <> 0
+		done = False
+		For i = 1 To a.nenhere
+			If done = False
+				ix = kx[i]
+				iy = ky[i]
+				If quad[ix][iy] = IHS
+					p_Movebaddy(ix, iy, i, IHS)
+					done = True
+				EndIf
+			EndIf
+		Next
+	EndIf
+	; if skill level is high, move other Klingons and Romulans too!
+	; move these last so they can base their actions on what the
+	; commander(s) do.
+	If a.skill > SGOOD
+		i = 1
+		While i <= a.nenhere
+			ix = kx[i]
+			iy = ky[i]
+			If (quad[ix][iy] = IHK) Or (quad[ix][iy] = IHR)
+				p_Movebaddy(ix, iy, i, quad[ix][iy])
+			EndIf
+			i = i + 1
+		Wend
+	EndIf
+
+	p_Sortkl()
+EndFunction
+
+; returns (1 if the move failed, ipage)
+Function p_Checkdest(iqx, iqy, flag, ipage)
+	Local i, found
+
+	If ((iqx = a.quadx) And (iqy = a.quady)) Or (iqx < 1) Or (iqx > 8) Or (iqy < 1) Or (iqy > 8)
+		Return(1, ipage)
+	EndIf
+	If d.galaxy[iqx][iqy] > 899
+		Return(1, ipage)
+	EndIf
+	If flag
+		; avoid quadrants with bases if we want to avoid Enterprise
+		For i = 1 To d.rembase
+			If (d.baseqx[i] = iqx) And (d.baseqy[i] = iqy)
+				Return(1, ipage)
+			EndIf
+		Next
+	EndIf
+
+	; do the move
+	d.galaxy[d.isx][d.isy] = d.galaxy[d.isx][d.isy] - 100
+	d.isx = iqx
+	d.isy = iqy
+	d.galaxy[d.isx][d.isy] = d.galaxy[d.isx][d.isy] + 100
+	If a.iscate <> 0
+		; SC has scooted, remove him from current quadrant
+		a.iscate = 0
+		a.isatb = 0
+		a.ishere = 0
+		a.ientesc = 0
+		future[FSCDBAS] = INF
+		found = a.nenhere
+		For i = a.nenhere To 1 Step -1
+			If quad[kx[i]][ky[i]] = IHS
+				found = i
+			EndIf
+		Next
+		i = found
+		quad[kx[i]][ky[i]] = IHDOT
+		kx[i] = kx[a.nenhere]
+		ky[i] = ky[a.nenhere]
+		kdist[i] = kdist[a.nenhere]
+		kavgd[i] = kavgd[a.nenhere]
+		kpower[i] = kpower[a.nenhere]
+		a.klhere = a.klhere - 1
+		a.nenhere = a.nenhere - 1
+		If a.condit <> IHDOCKED
+			p_Newcnd()
+		EndIf
+		p_Sortkl()
+	EndIf
+	; check for a helpful planet
+	found = False
+	For i = 1 To a.inplan
+		If found = False
+			If (d.plnets[i].x = d.isx) And (d.plnets[i].y = d.isy) And (d.plnets[i].crystals = 1)
+				; destroy the planet
+				d.plnets[i] = p_NulPlanet()
+				d.newstuf[d.isx][d.isy] = d.newstuf[d.isx][d.isy] - 1
+				If p_Reports()
+					If ipage = 0
+						p_Pause(1)
+					EndIf
+					ipage = 1
+					p_Prout("~r~Lt. Uhura~w~-  \"Captain, Starfleet Intelligence reports")
+					p_Proutn("   a planet in")
+					p_Cramlc(1, d.isx, d.isy)
+					p_Prout(" has been destroyed")
+					p_Prout("   by the Super-commander.\"")
+				EndIf
+				found = True
+			EndIf
+		EndIf
+	Next
+	Return(0, ipage)   ; looks good!
+EndFunction
+
+; returns the updated ipage
+Function p_Scom(ipage)
+	Local i, i2, j, ideltax, ideltay, ibqx, ibqy, sx, sy, ifindit, iwhichb
+	Local iqx, iqy, flag, iswitch, ti, t, fail, gotone
+	Local basetbl = {}
+	Local bdist = {}
+
+	; decide on being active or passive
+	flag = ((d.killc + d.killk) / (d.date + 0.01 - a.indate) < 0.1 * a.skill * (a.skill + 1.0)) Or ((d.date - a.indate) < 3.0)
+	If (a.iscate = 0) And flag
+		; compute move away from Enterprise
+		ideltax = d.isx - a.quadx
+		ideltay = d.isy - a.quady
+		If Sqrt(ideltax * ideltax + ideltay * ideltay) > 2.0
+			; circulate in space
+			ideltax = d.isy - a.quady
+			ideltay = a.quadx - d.isx
+		EndIf
+	Else
+		; compute distances to starbases
+		If d.rembase <= 0
+			; nothing left to do
+			future[FSCMOVE] = INF
+			Return(ipage)
+		EndIf
+		sx = d.isx
+		sy = d.isy
+		For i = 1 To d.rembase
+			basetbl[i] = i
+			ibqx = d.baseqx[i]
+			ibqy = d.baseqy[i]
+			bdist[i] = Sqrt(p_Sq(ibqx - sx) + p_Sq(ibqy - sy))
+		Next
+		If d.rembase > 1
+			; sort into nearest first order
+			Repeat
+				iswitch = 0
+				For i = 1 To d.rembase - 2
+					If bdist[i] > bdist[i + 1]
+						ti = basetbl[i]
+						t = bdist[i]
+						bdist[i] = bdist[i + 1]
+						bdist[i + 1] = t
+						basetbl[i] = basetbl[i + 1]
+						basetbl[i + 1] = ti
+						iswitch = 1
+					EndIf
+				Next
+			Until iswitch = 0
+		EndIf
+		; look for nearest base without a commander, no Enterprise, and
+		; without too many Klingons, and not already under attack.
+		ifindit = 0
+		iwhichb = 0
+		gotone = False
+		For i2 = 1 To d.rembase
+			If gotone = False
+				i = basetbl[i2]   ; bug in original had it not finding nearest
+				ibqx = d.baseqx[i]
+				ibqy = d.baseqy[i]
+				If ((ibqx = a.quadx) And (ibqy = a.quady)) Or ((ibqx = a.batx) And (ibqy = a.baty)) Or (d.galaxy[ibqx][ibqy] > 899)
+					; skip this one
+				Else
+					; if there is a commander, and no other base is appropriate,
+					; we will take the one with the commander
+					t = False
+					For j = 1 To d.remcom
+						If (t = False) And (ibqx = d.cx[j]) And (ibqy = d.cy[j]) And (ifindit <> 2)
+							t = True
+							ifindit = 2
+							iwhichb = i
+						EndIf
+					Next
+					If t = False
+						; no commander -- use this one
+						ifindit = 1
+						iwhichb = i
+						gotone = True
+					EndIf
+				EndIf
+			EndIf
+		Next
+		If ifindit = 0
+			Return(ipage)   ; nothing suitable -- wait until next time
+		EndIf
+		ibqx = d.baseqx[iwhichb]
+		ibqy = d.baseqy[iwhichb]
+		; decide how to move toward base
+		ideltax = ibqx - d.isx
+		ideltay = ibqy - d.isy
+	EndIf
+	; maximum movement is 1 quadrant in either or both axis
+	If ideltax > 1
+		ideltax = 1
+	EndIf
+	If ideltax < -1
+		ideltax = -1
+	EndIf
+	If ideltay > 1
+		ideltay = 1
+	EndIf
+	If ideltay < -1
+		ideltay = -1
+	EndIf
+
+	; try moving in both x and y directions
+	iqx = d.isx + ideltax
+	iqy = d.isy + ideltay
+	fail, ipage = p_Checkdest(iqx, iqy, flag, ipage)
+	If fail <> 0
+		; failed -- try some other maneuvers
+		If (ideltax = 0) Or (ideltay = 0)
+			; attempt angle move
+			If ideltax <> 0
+				iqy = d.isy + 1
+				fail, ipage = p_Checkdest(iqx, iqy, flag, ipage)
+				If fail <> 0
+					iqy = d.isy - 1
+					fail, ipage = p_Checkdest(iqx, iqy, flag, ipage)
+				EndIf
+			Else
+				iqx = d.isx + 1
+				fail, ipage = p_Checkdest(iqx, iqy, flag, ipage)
+				If fail <> 0
+					iqx = d.isx - 1
+					fail, ipage = p_Checkdest(iqx, iqy, flag, ipage)
+				EndIf
+			EndIf
+		Else
+			; try moving just in x or y
+			iqy = d.isy
+			fail, ipage = p_Checkdest(iqx, iqy, flag, ipage)
+			If fail <> 0
+				iqy = d.isy + ideltay
+				iqx = d.isx
+				fail, ipage = p_Checkdest(iqx, iqy, flag, ipage)
+			EndIf
+		EndIf
+	EndIf
+	; check for a base
+	If d.rembase = 0
+		future[FSCMOVE] = INF
+	Else
+		For i = 1 To d.rembase
+			ibqx = d.baseqx[i]
+			ibqy = d.baseqy[i]
+			If (ibqx = d.isx) And (ibqy = d.isy) And (d.isx <> a.batx) And (d.isy <> a.baty)
+				; attack the base
+				If flag
+					Return(ipage)   ; no, don't attack base!
+				EndIf
+				a.iseenit = 0
+				a.isatb = 1
+				future[FSCDBAS] = d.date + 1.0 + 2.0 * p_Rand()
+				If a.batx <> 0
+					future[FSCDBAS] = future[FSCDBAS] + future[FCDBAS] - d.date
+				EndIf
+				If p_Reports() = False
+					Return(ipage)   ; no warning
+				EndIf
+				a.iseenit = 1
+				If ipage = 0
+					p_Pause(1)
+				EndIf
+				ipage = 1
+				p_Proutn("~r~Lt. Uhura~w~-  \"Captain, the starbase in")
+				p_Cramlc(1, d.isx, d.isy)
+				p_Skip(1)
+				p_Prout("   reports that it is under attack from the Klingon Super-commander.")
+				p_Proutn("   It can survive until stardate ")
+				p_Cramf(future[FSCDBAS], 0, 1)
+				p_Prout(" .\"")
+				If a.resting = 0
+					Return(ipage)
+				EndIf
+				p_Prout("Mr. Spock-  \"Captain, shall we cancel the rest period?\"")
+				If p_Ja() = False
+					Return(ipage)
+				EndIf
+				a.resting = 0
+				a.time = 0.0   ; actually finished
+				Return(ipage)
+			EndIf
+		Next
+	EndIf
+	; check for intelligence report
+	If (p_Rand() > 0.2) Or (p_Reports() = False) Or (starch[d.isx][d.isy] > 0)
+		Return(ipage)
+	EndIf
+	If ipage = 0
+		p_Pause(1)
+	EndIf
+	ipage = 1
+	p_Prout("~r~Lt. Uhura~w~-  \"Captain, Starfleet Intelligence reports")
+	p_Proutn("   the Super-commander is in")
+	p_Cramlc(1, d.isx, d.isy)
+	p_Prout(".\"")
+	Return(ipage)
+EndFunction
+
+Function p_Movetho()
+	Local idx, idy, im, i
+
+	; move the Tholian
+	If (a.ithere = 0) Or (a.justin = 1)
+		Return
+	EndIf
+
+	If (a.ithx = 1) And (a.ithy = 1)
+		idx = 1
+		idy = 10
+	ElseIf (a.ithx = 1) And (a.ithy = 10)
+		idx = 10
+		idy = 10
+	ElseIf (a.ithx = 10) And (a.ithy = 10)
+		idx = 10
+		idy = 1
+	ElseIf (a.ithx = 10) And (a.ithy = 1)
+		idx = 1
+		idy = 1
+	Else
+		; something is wrong!
+		a.ithere = 0
+		Return
+	EndIf
+
+	; do nothing if we are blocked
+	If (quad[idx][idy] <> IHDOT) And (quad[idx][idy] <> IHWEB)
+		Return
+	EndIf
+	quad[a.ithx][a.ithy] = IHWEB
+
+	If a.ithx <> idx
+		; move in x axis
+		If idx > a.ithx
+			im = 1
+		Else
+			im = -1
+		EndIf
+		While a.ithx <> idx
+			a.ithx = a.ithx + im
+			If quad[a.ithx][a.ithy] = IHDOT
+				quad[a.ithx][a.ithy] = IHWEB
+			EndIf
+		Wend
+	ElseIf a.ithy <> idy
+		; move in y axis
+		If idy > a.ithy
+			im = 1
+		Else
+			im = -1
+		EndIf
+		While a.ithy <> idy
+			a.ithy = a.ithy + im
+			If quad[a.ithx][a.ithy] = IHDOT
+				quad[a.ithx][a.ithy] = IHWEB
+			EndIf
+		Wend
+	EndIf
+	quad[a.ithx][a.ithy] = IHT
+
+	; check to see if all holes plugged
+	For i = 1 To 10
+		If (quad[1][i] <> IHWEB) And (quad[1][i] <> IHT)
+			Return
+		EndIf
+		If (quad[10][i] <> IHWEB) And (quad[10][i] <> IHT)
+			Return
+		EndIf
+		If (quad[i][1] <> IHWEB) And (quad[i][1] <> IHT)
+			Return
+		EndIf
+		If (quad[i][10] <> IHWEB) And (quad[i][10] <> IHT)
+			Return
+		EndIf
+	Next
+	; all plugged up -- Tholian splits
+	quad[a.ithx][a.ithy] = IHWEB
+	p_Dropin(IHBLANK)
+	p_Crmena(1, IHT, 2, a.ithx, a.ithy)
+	p_Prout(" completes web.")
+	a.ithere = 0
+	a.ithx = 0
+	a.ithy = 0
+EndFunction

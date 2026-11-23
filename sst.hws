@@ -1,0 +1,705 @@
+/*
+** Super Star Trek -- Hollywood edition
+**
+** A graphical port of the BBS door version 1.1.0 of Tom Almy's
+** "Super Star Trek" (C), based on the 1978 classic.
+** Original sources: https://github.com/fstltna/SuperStarTrek
+**
+** Built with SCORE, CLOAKING and CAPTURE enabled, like the
+** original makefile.
+**
+** Run:   Hollywood sst.hws
+** Needs: sst.doc in the same directory for the HELP command.
+*/
+
+@APPTITLE "Super Star Trek"
+@DISPLAY {Title = "Super Star Trek", Width = 1024, Height = 768, Color = $000000}
+
+@INCLUDE "io.hws"
+@INCLUDE "gfx.hws"
+@INCLUDE "setup.hws"
+@INCLUDE "moving.hws"
+@INCLUDE "battle.hws"
+@INCLUDE "events.hws"
+@INCLUDE "ai.hws"
+@INCLUDE "reports.hws"
+@INCLUDE "finish.hws"
+@INCLUDE "planets.hws"
+
+; ------------------------------------------------------------------
+; Constants
+; ------------------------------------------------------------------
+
+PI = 3.141592653589793
+INF = 1000000.0 * 1000000.0 * 1000000.0 * 1000000.0 * 1000000.0   ; "1e30"
+
+ndevice = 16        ; with cloaking device
+phasefac = 2.0
+PLNETMAX = 10
+NEVENTS = 8
+ALGERON = 2311
+
+; skill levels
+SNOVICE = 1
+SFAIR = 2
+SGOOD = 3
+SEXPERT = 4
+SEMERITUS = 5
+
+; devices
+DSRSENS = 1
+DLRSENS = 2
+DPHASER = 3
+DPHOTON = 4
+DLIFSUP = 5
+DWARPEN = 6
+DIMPULS = 7
+DSHIELD = 8
+DRADIO = 9
+DSHUTTL = 10
+DCOMPTR = 11
+DTRANSP = 12
+DSHCTRL = 13
+DDRAY = 14
+DDSP = 15
+DCLOAK = 16
+
+; future events
+FSPY = 0
+FSNOVA = 1
+FTBEAM = 2
+FSNAP = 3
+FBATTAK = 4
+FCDBAS = 5
+FSCMOVE = 6
+FSCDBAS = 7
+FDSPROB = 8
+
+; ways a game can end
+FWON = 0
+FDEPLETE = 1
+FLIFESUP = 2
+FNRG = 3
+FBATTLE = 4
+FNEG3 = 5
+FNOVA = 6
+FSNOVAED = 7
+FABANDN = 8
+FDILITHIUM = 9
+FMATERIALIZE = 10
+FPHASER = 11
+FLOST = 12
+FMINING = 13
+FDPLANET = 14
+FPNOVA = 15
+FSSC = 16
+FSTRACTOR = 17
+FDRAY = 18
+FTRIBBLE = 19
+FHOLE = 20
+FCLOAK = 21
+
+; map symbols
+IHR = "R"
+IHK = "K"
+IHC = "C"
+IHS = "S"
+IHSTAR = "*"
+IHP = "P"
+IHB = "B"
+IHBLANK = " "
+IHDOT = "."
+IHQUEST = "?"
+IHE = "E"
+IHF = "F"
+IHT = "T"
+IHWEB = "#"
+IHGREEN = "G"
+IHYELLOW = "Y"
+IHRED = "R"
+IHDOCKED = "D"
+
+device = {}
+device[0] = ""
+device[1] = "S. R. Sensors"
+device[2] = "L. R. Sensors"
+device[3] = "Phasers"
+device[4] = "Photon Tubes"
+device[5] = "Life Support"
+device[6] = "Warp Engines"
+device[7] = "Impulse Engines"
+device[8] = "Shields"
+device[9] = "Subspace Radio"
+device[10] = "Shuttle Craft"
+device[11] = "Computer"
+device[12] = "Transporter"
+device[13] = "Shield Control"
+device[14] = "Death Ray"
+device[15] = "D. S. Probe"
+device[16] = "Cloaking Device"
+
+commands = {}
+commands[0] = "srscan"
+commands[1] = "lrscan"
+commands[2] = "phasers"
+commands[3] = "photons"
+commands[4] = "move"
+commands[5] = "shields"
+commands[6] = "dock"
+commands[7] = "damages"
+commands[8] = "chart"
+commands[9] = "impulse"
+commands[10] = "rest"
+commands[11] = "warp"
+commands[12] = "status"
+commands[13] = "sensors"
+commands[14] = "orbit"
+commands[15] = "transport"
+commands[16] = "mine"
+commands[17] = "crystals"
+commands[18] = "shuttle"
+commands[19] = "planets"
+commands[20] = "request"
+commands[21] = "report"
+commands[22] = "computer"
+commands[23] = "commands"
+commands[24] = "emexit"
+commands[25] = "probe"
+commands[26] = "cloak"
+commands[27] = "capture"
+commands[28] = "score"
+commands[29] = "abandon"
+commands[30] = "destruct"
+commands[31] = "freeze"
+commands[32] = "deathray"
+commands[33] = "debug"
+commands[34] = "call"
+commands[35] = "quit"
+commands[36] = "help"
+NUMCOMMANDS = 37
+
+coordfixed = 0
+passwd = ""
+iscore = 0
+iskill = 0
+perdate = 0.0
+
+; ------------------------------------------------------------------
+; Game state. "d" is the part that is snapshotted for time warps.
+; ------------------------------------------------------------------
+
+Function p_Arr2(n, m, v)
+	Local t = {}
+	Local i, j
+	For i = 0 To n
+		t[i] = {}
+		For j = 0 To m
+			t[i][j] = v
+		Next
+	Next
+	Return(t)
+EndFunction
+
+Function p_Arr1(n, v)
+	Local t = {}
+	Local i
+	For i = 0 To n
+		t[i] = v
+	Next
+	Return(t)
+EndFunction
+
+Function p_NulPlanet()
+	Return({x = 0, y = 0, pclass = 0, crystals = 0, known = 0})
+EndFunction
+
+Function p_DeepCopy(t)
+	Local r = {}
+	Local k, v
+	For k, v In Pairs(t)
+		If GetType(v) = #TABLE
+			r[k] = p_DeepCopy(v)
+		Else
+			r[k] = v
+		EndIf
+	Next
+	Return(r)
+EndFunction
+
+Function p_NewD()
+	Local t = {}
+	Local i
+	t.snap = 0
+	t.remkl = 0
+	t.remcom = 0
+	t.rembase = 0
+	t.starkl = 0
+	t.basekl = 0
+	t.killk = 0
+	t.killc = 0
+	t.galaxy = p_Arr2(9, 9, 0)
+	t.cx = p_Arr1(11, 0)
+	t.cy = p_Arr1(11, 0)
+	t.baseqx = p_Arr1(7, 0)
+	t.baseqy = p_Arr1(7, 0)
+	t.newstuf = p_Arr2(9, 9, 0)
+	t.isx = 0
+	t.isy = 0
+	t.nscrem = 0
+	t.nromkl = 0
+	t.nromrem = 0
+	t.nsckill = 0
+	t.nplankl = 0
+	t.plnets = {}
+	For i = 0 To PLNETMAX + 1
+		t.plnets[i] = p_NulPlanet()
+	Next
+	t.kcaptured = 0
+	t.brigfree = 0
+	t.date = 0.0
+	t.remres = 0.0
+	t.remtime = 0.0
+	Return(t)
+EndFunction
+
+Function p_NewA()
+	Local t = {}
+	Local names = {"inkling", "inbase", "incom", "instar", "intorps", "torps",
+		"quadx", "quady", "sectx", "secty", "length", "skill", "basex", "basey",
+		"klhere", "comhere", "casual", "nhelp", "nkinks", "ididit", "gamewon",
+		"alive", "justin", "alldone", "shldchg", "thingx", "thingy", "plnetx",
+		"plnety", "inorbit", "landed", "iplnet", "imine", "inplan", "nenhere",
+		"ishere", "neutz", "irhere", "icraft", "ientesc", "iscraft", "isatb",
+		"iscate", "iscloaked", "iscloaking", "ncviol", "isviolreported",
+		"brigcapacity", "iattak", "icrystl", "tourn", "thawed", "batx", "baty",
+		"ithere", "ithx", "ithy", "iseenit", "probecx", "probecy", "proben",
+		"isarmed", "nprobes", "inresor", "intime", "inenrg", "inshld", "inlsr",
+		"indate", "energy", "shield", "shldup", "warpfac", "wfacsq", "lsupres",
+		"dist", "direc", "time", "docfac", "resting", "damfac", "stdamtim",
+		"cryprob", "probex", "probey", "probeinx", "probeiny", "height"}
+	Local i
+	For i = 0 To ListItems(names) - 1
+		t[names[i]] = 0
+	Next
+	t.condit = IHGREEN
+	t.ship = IHE
+	t.inenrg = 5000.0
+	t.inshld = 2500.0
+	Return(t)
+EndFunction
+
+Function p_ResetState()
+	d = p_NewD()
+	snapsht = p_NewD()
+	a = p_NewA()
+	quad = p_Arr2(11, 11, IHDOT)
+	kx = p_Arr1(21, 0)
+	ky = p_Arr1(21, 0)
+	kpower = p_Arr1(21, 0.0)
+	kdist = p_Arr1(21, 0.0)
+	kavgd = p_Arr1(21, 0.0)
+	starch = p_Arr2(9, 9, 0)
+	damage = p_Arr1(ndevice + 1, 0.0)
+	future = p_Arr1(NEVENTS + 1, 0.0)
+EndFunction
+
+Function p_Reports()
+	Return(((a.condit = IHDOCKED) Or (damage[DRADIO] <= 0.0)) And (a.iscloaked = 0))
+EndFunction
+
+; ------------------------------------------------------------------
+; Small printing helpers of the original
+; ------------------------------------------------------------------
+
+Function p_Cramen(i)
+	Local s
+	If i = IHR
+		s = "Romulan"
+	ElseIf i = IHK
+		s = "Klingon"
+	ElseIf i = IHC
+		s = "Commander"
+	ElseIf i = IHS
+		s = "Super-commander"
+	ElseIf i = IHSTAR
+		s = "Star"
+	ElseIf i = IHP
+		s = "Planet"
+	ElseIf i = IHB
+		s = "Starbase"
+	ElseIf i = IHBLANK
+		s = "Black hole"
+	ElseIf i = IHT
+		s = "Tholean"
+	ElseIf i = IHWEB
+		s = "Tholean web"
+	Else
+		s = "Unknown??"
+	EndIf
+	p_Proutn(s)
+EndFunction
+
+Function p_Cramlc(key, x, y)
+	If key = 1
+		p_Proutn(" Quadrant")
+	ElseIf key = 2
+		p_Proutn(" Sector")
+	EndIf
+	p_Proutn(" ")
+	p_Crami(x, 1)
+	p_Proutn(" - ")
+	p_Crami(y, 1)
+EndFunction
+
+Function p_Crmena(i, enemy, key, x, y)
+	If i = 1
+		p_Proutn("***")
+	EndIf
+	p_Cramen(enemy)
+	p_Proutn(" at")
+	p_Cramlc(key, x, y)
+EndFunction
+
+Function p_Crmship()
+	If a.ship = IHE
+		p_Proutn("Enterprise")
+	ElseIf a.ship = IHF
+		p_Proutn("Faerie Queene")
+	Else
+		p_Proutn("Ship???")
+	EndIf
+EndFunction
+
+Function p_Stars()
+	p_Prouts("******************************************************")
+	p_Skip(1)
+EndFunction
+
+Function p_Cramf(x, w, dd)
+	p_Proutn(p_FmtF(x, w, dd))
+EndFunction
+
+Function p_Crami(i, w)
+	p_Proutn(p_FmtI(i, w))
+EndFunction
+
+; ------------------------------------------------------------------
+; Command loop
+; ------------------------------------------------------------------
+
+Function p_ListCommands(x)
+	p_Prout("   SRSCAN    MOVE      PHASERS   CALL\n" ..
+		"   STATUS    IMPULSE   PHOTONS   ABANDON\n" ..
+		"   LRSCAN    WARP      SHIELDS   DESTRUCT\n" ..
+		"   CHART     REST      DOCK      QUIT\n" ..
+		"   DAMAGES   REPORT    SENSORS   ORBIT\n" ..
+		"   TRANSPORT MINE      CRYSTALS  SHUTTLE\n" ..
+		"   PLANETS   REQUEST   DEATHRAY  FREEZE\n" ..
+		"   COMPUTER  EMEXIT    PROBE     COMMANDS")
+	p_Proutn("   ")
+	p_Proutn("SCORE     ")
+	p_Proutn("CLOAK     ")
+	p_Proutn("CAPTURE   ")
+	If x
+		p_Proutn("HELP     ")
+	EndIf
+	p_Prout("")
+EndFunction
+
+Function p_Helpme()
+	Local i, key, cmdbuf, linebuf, n, found
+	key = p_Scan()
+	Repeat
+		If key = IHEOL
+			p_Proutn("Help on what command?")
+			key = p_Scan()
+		EndIf
+		If key = IHEOL
+			Return
+		EndIf
+		i = -1
+		For n = 0 To NUMCOMMANDS - 1
+			If (i = -1) And (commands[n] = citem)
+				i = n
+			EndIf
+		Next
+		If i = -1
+			p_Skip(1)
+			p_Prout("Valid commands:")
+			p_ListCommands(False)
+			key = IHEOL
+			p_Chew()
+			p_Skip(1)
+		EndIf
+	Until i <> -1
+	If i = 23
+		cmdbuf = " ABBREV"
+	Else
+		cmdbuf = "  Mnemonic:  " .. UpperStr(commands[i])
+	EndIf
+	If Exists("sst.doc") = False
+		p_Prout("~b~Spock~w~-  \"Captain, that information is missing from the")
+		p_Prout("   computer. You need to find SST.DOC and put it in the")
+		p_Prout("   current directory.\"")
+		Return
+	EndIf
+	OpenFile(1, "sst.doc", #MODE_READ)
+	n = StrLen(cmdbuf)
+	found = False
+	While (found = False) And (Eof(1) = False)
+		linebuf = ReplaceStr(ReadLine(1), "\r", "")
+		If p_Left(linebuf, n) = cmdbuf
+			found = True
+		EndIf
+	Wend
+	If found = False
+		p_Prout("~b~Spock~w~- \"Captain, there is no information on that command.\"")
+		CloseFile(1)
+		Return
+	EndIf
+	p_Skip(1)
+	p_Prout("~b~Spock~w~- \"Captain, I've found the following information:\"")
+	p_Skip(1)
+	Repeat
+		If p_Left(linebuf, 1) <> Chr(12)
+			p_Prout(ReplaceStr(linebuf, "~", "-"))
+		EndIf
+		If Eof(1)
+			linebuf = "******"
+		Else
+			linebuf = ReplaceStr(ReadLine(1), "\r", "")
+		EndIf
+	Until FindStr(linebuf, "******") >= 0
+	CloseFile(1)
+EndFunction
+
+Function p_FindCommand()
+	Local k
+	For k = 0 To 28
+		If p_Isit(commands[k])
+			Return(k)
+		EndIf
+	Next
+	For k = 29 To NUMCOMMANDS - 1
+		If (commands[k] = citem) And (k <> 33)
+			Return(k)
+		EndIf
+	Next
+	Return(-1)
+EndFunction
+
+Function p_Treaty()
+	If (a.irhere <> 0) And (d.date >= ALGERON) And (a.isviolreported = 0)
+		p_Prout("The Romulan ship discovers you are breaking the Treaty of Algeron!")
+		a.ncviol = a.ncviol + 1
+		a.isviolreported = 1
+	EndIf
+EndFunction
+
+Function p_Makemoves()
+	Local i, hitme, again
+	Repeat
+		hitme = False
+		a.justin = 0
+		a.time = 0.0
+		i = -1
+		While i = -1
+			p_Chew()
+			p_Skip(1)
+			p_Proutn("~g~COMMAND~w~> ")
+			If p_Scan() <> IHEOL
+				i = p_FindCommand()
+				If i = -1
+					If a.skill <= SFAIR
+						p_Prout("~y~UNRECOGNIZED COMMAND~w~. ~g~LEGAL COMMANDS ARE~w~:")
+						p_ListCommands(True)
+					Else
+						p_Prout("~y~UNRECOGNIZED COMMAND~w~.")
+					EndIf
+				EndIf
+			EndIf
+		Wend
+
+		If i = 0
+			p_Srscan(1)
+		ElseIf i = 1
+			p_Lrscan()
+		ElseIf i = 2
+			p_Phasers()
+			If a.ididit <> 0
+				p_Treaty()
+				hitme = True
+			EndIf
+		ElseIf i = 3
+			p_Photon()
+			If a.ididit <> 0
+				p_Treaty()
+				hitme = True
+			EndIf
+		ElseIf i = 4
+			p_Warp(1)
+		ElseIf i = 5
+			p_Sheild(1)
+			If a.ididit <> 0
+				p_Attack(2)
+				a.shldchg = 0
+			EndIf
+		ElseIf i = 6
+			p_Dock()
+		ElseIf i = 7
+			p_Dreprt()
+		ElseIf i = 8
+			p_Chart(0)
+		ElseIf i = 9
+			p_Impuls()
+		ElseIf i = 10
+			p_Waiting()
+			If a.ididit <> 0
+				hitme = True
+			EndIf
+		ElseIf i = 11
+			p_Setwrp()
+		ElseIf i = 12
+			p_Srscan(3)
+		ElseIf i = 13
+			p_Sensor()
+		ElseIf i = 14
+			p_Orbit()
+			If a.ididit <> 0
+				hitme = True
+			EndIf
+		ElseIf i = 15
+			p_Beam()
+		ElseIf i = 16
+			p_Mine()
+			If a.ididit <> 0
+				hitme = True
+			EndIf
+		ElseIf i = 17
+			p_Usecrystals()
+		ElseIf i = 18
+			p_Shuttle()
+			If a.ididit <> 0
+				hitme = True
+			EndIf
+		ElseIf i = 19
+			p_Preport()
+		ElseIf i = 20
+			p_Srscan(2)
+		ElseIf i = 21
+			p_Report(0)
+		ElseIf i = 22
+			p_Eta()
+		ElseIf i = 23
+			p_ListCommands(True)
+		ElseIf i = 24
+			p_ClearScreen()
+			p_Freeze(True)
+			p_Redraw()
+			End()
+		ElseIf i = 25
+			p_Probe()
+		ElseIf i = 26
+			p_Cloak()
+			If a.iscloaking <> 0
+				p_Attack(2)
+				a.iscloaking = 0
+				a.iscloaked = 1
+			EndIf
+		ElseIf i = 27
+			p_Capture()
+			If a.ididit <> 0
+				hitme = True
+			EndIf
+		ElseIf i = 28
+			p_Score(1)
+		ElseIf i = 29
+			p_Abandn()
+		ElseIf i = 30
+			p_Dstrct()
+		ElseIf i = 31
+			p_Freeze(False)
+			If a.skill > SGOOD
+				p_Prout("WARNING--Frozen games produce no plaques!")
+			EndIf
+		ElseIf i = 32
+			p_Deathray()
+			If a.ididit <> 0
+				hitme = True
+			EndIf
+		ElseIf i = 34
+			p_Help()
+		ElseIf i = 35
+			a.alldone = 1
+		ElseIf i = 36
+			p_Helpme()
+		EndIf
+
+		; events, supernova escapes, enemy attacks
+		Repeat
+			again = False
+			If a.alldone = 0
+				If a.time <> 0.0
+					p_Events()
+				EndIf
+				If a.alldone = 0
+					If d.galaxy[a.quadx][a.quady] = 1000
+						p_Atover(0)
+						again = True
+					Else
+						If a.nenhere = 0
+							p_Movetho()
+						EndIf
+						If (hitme = True) And (a.justin = 0)
+							p_Attack(2)
+							If a.alldone = 0
+								If d.galaxy[a.quadx][a.quady] = 1000
+									p_Atover(0)
+									hitme = True
+									again = True
+								EndIf
+							EndIf
+						EndIf
+					EndIf
+				EndIf
+			EndIf
+		Until again = False
+		p_Redraw()
+	Until a.alldone <> 0
+EndFunction
+
+; ------------------------------------------------------------------
+; Main program
+; ------------------------------------------------------------------
+
+p_ResetState()
+p_InitGfx()
+p_Prelim()
+
+playing = True
+While playing
+	p_Setup()
+	If a.alldone <> 0
+		p_Score(0)
+		a.alldone = 0
+	Else
+		p_Makemoves()
+	EndIf
+	p_Skip(2)
+	p_Stars()
+	p_Skip(1)
+	If (a.tourn <> 0) And (a.alldone <> 0)
+		p_Proutn("Do you want your score recorded?")
+		If p_Ja()
+			p_Chew2()
+			p_Freeze(False)
+		EndIf
+	EndIf
+	p_Proutn("Do you want to play again?")
+	playing = p_Ja()
+Wend
+p_Skip(1)
+p_Prout("May the Great Bird of the Galaxy roost upon your home planet.")
+p_Redraw()
+Wait(100)
+End()

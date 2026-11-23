@@ -1,0 +1,632 @@
+/*
+** reports.hws -- Super Star Trek for Hollywood
+** attack reports, game report, scans, damage report, star chart,
+** status and the navigation computer
+*/
+
+Function p_Attakreport()
+	If future[FCDBAS] < INF
+		p_Proutn("~r~Starbase in ~g~")
+		p_Cramlc(1, a.batx, a.baty)
+		p_Prout(" ~r~is currently under attack.")
+		p_Proutn("It can hold out until Stardate ~g~")
+		p_Cramf(future[FCDBAS], 0, 1)
+		p_Prout("~w~.")
+	EndIf
+	If a.isatb = 1
+		p_Proutn("~r~Starbase in ~g~")
+		p_Cramlc(1, d.isx, d.isy)
+		p_Prout(" ~r~is under Super-commander attack.")
+		p_Proutn("It can hold out until Stardate ~g~")
+		p_Cramf(future[FSCDBAS], 0, 1)
+		p_Prout("~w~.")
+	EndIf
+EndFunction
+
+Function p_Report(f)
+	Local s1, s2, s3, s, i, ai, n
+
+	p_Chew()
+	s1 = ""
+	If a.thawed <> 0
+		s1 = "thawed "
+	EndIf
+	If a.length = 1
+		s2 = "short"
+	ElseIf a.length = 2
+		s2 = "medium"
+	ElseIf a.length = 4
+		s2 = "long"
+	Else
+		s2 = "unknown length"
+	EndIf
+	If a.skill = SNOVICE
+		s3 = "novice"
+	ElseIf a.skill = SFAIR
+		s3 = "fair"
+	ElseIf a.skill = SGOOD
+		s3 = "good"
+	ElseIf a.skill = SEXPERT
+		s3 = "expert"
+	ElseIf a.skill = SEMERITUS
+		s3 = "emeritus"
+	Else
+		s3 = "skilled"
+	EndIf
+	If a.alldone <> 0
+		s = "were"
+	Else
+		s = "are now"
+	EndIf
+	p_Prout("\nYou " .. s .. " playing a " .. s1 .. s2 .. " " .. s3 .. " game.")
+	If (a.skill > SGOOD) And (a.thawed <> 0) And (a.alldone = 0)
+		p_Prout("No plaque is allowed.")
+	EndIf
+	If a.tourn <> 0
+		p_Prout("This is tournament game ~g~" .. a.tourn .. "~w~.")
+	EndIf
+	If f <> 0
+		p_Prout("Your secret password is \"~r~" .. passwd .. "~w~\"")
+	EndIf
+	p_Proutn("~g~" .. (d.killk + d.killc + d.nsckill) .. "~w~ of ~g~" .. a.inkling .. "~w~ Klingon ships have been destroyed")
+	If d.killc <> 0
+		If d.killc = 1
+			p_Prout(", including ~g~" .. d.killc .. "~w~ Commander.")
+		Else
+			p_Prout(", including ~g~" .. d.killc .. "~w~ Commanders.")
+		EndIf
+	ElseIf d.killk + d.nsckill > 0
+		p_Prout(", but no Commanders.")
+	Else
+		p_Prout(".")
+	EndIf
+	If a.skill > SFAIR
+		If d.nscrem <> 0
+			p_Prout("The Super Commander has not been destroyed.")
+		Else
+			p_Prout("The Super Commander has been destroyed.")
+		EndIf
+	EndIf
+	If d.rembase <> a.inbase
+		p_Proutn("There ")
+		If a.inbase - d.rembase = 1
+			p_Proutn("has been 1 base")
+		Else
+			p_Proutn("have been ")
+			p_Crami(a.inbase - d.rembase, 1)
+			p_Proutn(" bases")
+		EndIf
+		p_Proutn(" destroyed, ")
+		p_Crami(d.rembase, 1)
+		p_Prout(" remaining.")
+	Else
+		p_Prout("There are ~g~" .. a.inbase .. "~w~ bases.")
+	EndIf
+	If p_Reports() Or (a.iseenit <> 0)
+		; don't report this if not seen and
+		; either the radio is dead or not at base!
+		p_Attakreport()
+		a.iseenit = 1
+	EndIf
+	If a.casual <> 0
+		If a.casual = 1
+			p_Prout("~g~" .. a.casual .. "~w~ casualty suffered so far.")
+		Else
+			p_Prout("~g~" .. a.casual .. "~w~ casualties suffered so far.")
+		EndIf
+	EndIf
+	n = a.brigcapacity - d.brigfree
+	If n <> 0
+		If n > 1
+			p_Prout("~g~" .. n .. "~w~ Klingons in brig.")
+		Else
+			p_Prout("~g~" .. n .. "~w~ Klingon in brig.")
+		EndIf
+	EndIf
+	If d.kcaptured > 0
+		If d.kcaptured > 1
+			p_Prout("~g~" .. d.kcaptured .. "~w~ captured Klingons turned in to Star Fleet.")
+		Else
+			p_Prout("~g~" .. d.kcaptured .. "~w~ captured Klingon turned in to Star Fleet.")
+		EndIf
+	EndIf
+	If a.nhelp <> 0
+		If a.nhelp = 1
+			p_Prout("There were ~g~1~w~ call for help.")
+		Else
+			p_Prout("There were ~g~" .. a.nhelp .. "~w~ calls for help.")
+		EndIf
+	EndIf
+	If a.ship = IHE
+		p_Proutn("You have ~g~")
+		If a.nprobes <> 0
+			p_Crami(a.nprobes, 1)
+		Else
+			p_Proutn("no")
+		EndIf
+		p_Proutn("~w~ deep space probe")
+		If a.nprobes <> 1
+			p_Proutn("s")
+		EndIf
+		p_Prout(".")
+	EndIf
+	If p_Reports() And (future[FDSPROB] <> INF)
+		If a.isarmed <> 0
+			p_Proutn("An armed deep space probe is in")
+		Else
+			p_Proutn("A deep space probe is in")
+		EndIf
+		p_Cramlc(1, a.probecx, a.probecy)
+		p_Prout(".")
+	EndIf
+	If a.icrystl <> 0
+		If a.cryprob <= 0.05
+			p_Prout("Dilithium crystals aboard ship...not yet used.")
+		Else
+			i = 0
+			ai = 0.05
+			While a.cryprob > ai
+				ai = ai * 2.0
+				i = i + 1
+			Wend
+			If i = 1
+				p_Prout("Dilithium crystals have been used ~g~1~w~ time.")
+			Else
+				p_Prout("Dilithium crystals have been used ~g~" .. i .. "~w~ times.")
+			EndIf
+		EndIf
+	EndIf
+	p_Skip(1)
+EndFunction
+
+Function p_Lrscan()
+	Local x, y, s
+	p_Chew()
+	If damage[DLRSENS] <> 0.0
+		; now allow base's sensors if docked
+		If a.condit <> IHDOCKED
+			p_Prout("~r~LONG-RANGE SENSORS DAMAGED~w~.")
+			Return
+		EndIf
+		p_Skip(1)
+		p_Proutn("Starbase's long-range scan for")
+	Else
+		p_Skip(1)
+		p_Proutn("Long-range scan for")
+	EndIf
+	p_Cramlc(1, a.quadx, a.quady)
+	p_Skip(1)
+	For x = a.quadx - 1 To a.quadx + 1
+		s = ""
+		For y = a.quady - 1 To a.quady + 1
+			If (x = 0) Or (x > 8) Or (y = 0) Or (y > 8)
+				s = s .. "   -1"
+			Else
+				s = s .. p_FmtI(d.galaxy[x][y], 5)
+				; if radio works, mark star chart so it will show current
+				; information. otherwise mark with current value which is fixed.
+				If damage[DRADIO] > 0
+					starch[x][y] = d.galaxy[x][y] + 1000
+				Else
+					starch[x][y] = 1
+				EndIf
+			EndIf
+		Next
+		p_Proutn(s)
+		p_NewLine()
+	Next
+EndFunction
+
+Function p_Dreprt()
+	Local jdam = False
+	Local i
+	p_Chew()
+
+	For i = 1 To ndevice
+		If damage[i] > 0.0
+			If jdam = False
+				p_Skip(1)
+				p_Prout("DEVICE            -REPAIR TIMES-")
+				p_Prout("                IN FLIGHT   DOCKED")
+				jdam = True
+			EndIf
+			p_Proutn("  " .. p_PadL(device[i], 16) .. " ")
+			p_Cramf(damage[i] + 0.05, 8, 2)
+			p_Proutn("  ")
+			p_Cramf(a.docfac * damage[i] + 0.005, 8, 2)
+			p_Skip(1)
+		EndIf
+	Next
+	If jdam = False
+		p_Prout("~g~All devices functional~w~.")
+	EndIf
+EndFunction
+
+Function p_Chart(nn)
+	Local i, j, s
+
+	p_Chew()
+	p_Skip(1)
+	If (a.stdamtim <> INF) And (a.stdamtim <> d.date) And (a.condit = IHDOCKED)
+		p_Prout("~b~Spock~w~-  \"I revised the Star Chart from the")
+		p_Prout("  starbase's records.\"")
+		p_Skip(1)
+	EndIf
+	If nn = 0
+		p_Prout("~m~STAR CHART FOR THE KNOWN GALAXY~w~")
+	EndIf
+	If a.stdamtim <> INF
+		If a.condit = IHDOCKED
+			; we are docked, so restore chart from base information -- these values won't update!
+			a.stdamtim = d.date
+			For i = 1 To 8
+				For j = 1 To 8
+					If starch[i][j] = 1
+						starch[i][j] = d.galaxy[i][j] + 1000
+					EndIf
+				Next
+			Next
+		Else
+			p_Proutn("(Last surveillance update ~g~")
+			p_Cramf(d.date - a.stdamtim, 0, 1)
+			p_Prout("~w~ stardates ago.)")
+		EndIf
+	EndIf
+	If nn = 0
+		p_Skip(1)
+	EndIf
+
+	p_Prout("      1    2    3    4    5    6    7    8")
+	p_Prout("    ----------------------------------------")
+	If nn = 0
+		p_Prout("  -")
+	EndIf
+	For i = 1 To 8
+		s = i .. " -"
+		For j = 1 To 8
+			If starch[i][j] < 0
+				s = s .. "  .1."   ; we know only about the bases
+			ElseIf starch[i][j] = 0
+				s = s .. "  ..."   ; unknown
+			ElseIf starch[i][j] > 999
+				s = s .. p_FmtI(starch[i][j] - 1000, 5)   ; memorized value
+			Else
+				s = s .. p_FmtI(d.galaxy[i][j], 5)   ; what is actually there
+			EndIf
+		Next
+		p_Prout(s .. "  -")
+	Next
+	If nn = 0
+		p_Skip(1)
+		p_Crmship()
+		p_Proutn(" is currently in")
+		p_Cramlc(1, a.quadx, a.quady)
+		p_Skip(1)
+	EndIf
+EndFunction
+
+Function p_Srscan(l)
+	Local requests = {"", "da", "co", "po", "ls", "wa", "en", "to", "sh", "kl", "ti"}
+	Local leftside = True
+	Local rightside = True
+	Local nn = False
+	Local goodscan = True
+	Local k = 0
+	Local i, j, jj, s, cp, n, found
+
+	If l = 1
+		; SRSCAN
+		If damage[DSRSENS] <> 0
+			; allow base's sensors if docked
+			If a.condit <> IHDOCKED
+				p_Prout("~r~SHORT-RANGE SENSORS DAMAGED~w~")
+				goodscan = False
+			Else
+				p_Prout("[Using starbase's sensors]")
+			EndIf
+		EndIf
+		If goodscan
+			If damage[DRADIO] > 0.0
+				starch[a.quadx][a.quady] = d.galaxy[a.quadx][a.quady] + 1000
+			Else
+				starch[a.quadx][a.quady] = 1
+			EndIf
+		EndIf
+		p_Scan()
+		If p_Isit("chart")
+			nn = True
+		EndIf
+		If p_Isit("no")
+			rightside = False
+		EndIf
+		p_Chew()
+		p_Prout("\n    1 2 3 4 5 6 7 8 9 10")
+	ElseIf l = 2
+		; REQUEST
+		While p_Scan() = IHEOL
+			p_Proutn("Information desired? ")
+		Wend
+		p_Chew()
+		n = StrLen(citem)
+		If n > 2
+			n = 2
+		EndIf
+		found = False
+		For k = 1 To 10
+			If found = False
+				If p_Left(citem, n) = p_Left(requests[k], n)
+					found = k
+				EndIf
+			EndIf
+		Next
+		If found = False
+			p_Prout("~y~UNRECOGNIZED REQUEST~w~. ~g~Legal requests are~w~:\n" ..
+				"  date, condition, position, lsupport, warpfactor,\n" ..
+				"  energy, torpedoes, shields, klingons, time.")
+			Return
+		EndIf
+		k = found
+	EndIf
+	If (l = 2) Or (l = 3)
+		; STATUS
+		p_Chew()
+		leftside = False
+		p_Skip(1)
+	EndIf
+	If l <> 2
+		k = 0
+	EndIf
+	For i = 1 To 10
+		If k <> 0
+			jj = k
+		Else
+			jj = i
+		EndIf
+		If leftside
+			s = p_FmtI(i, 2) .. "  "
+			For j = 1 To 10
+				If goodscan Or ((Abs(i - a.sectx) <= 1) And (Abs(j - a.secty) <= 1))
+					s = s .. quad[i][j] .. " "
+				Else
+					s = s .. "- "
+				EndIf
+			Next
+			p_Proutn(s)
+		EndIf
+		If rightside
+			If jj = 1
+				p_Proutn(" ~B~Stardate~n~      " .. p_FmtF(d.date, 0, 1))
+			ElseIf jj = 2
+				If a.condit <> IHDOCKED
+					p_Newcnd()
+				EndIf
+				If a.condit = IHRED
+					cp = "~r~RED~w~"
+				ElseIf a.condit = IHGREEN
+					cp = "~g~GREEN~w~"
+				ElseIf a.condit = IHYELLOW
+					cp = "~y~YELLOW~w~"
+				Else
+					cp = "DOCKED"
+				EndIf
+				p_Proutn(" ~B~Condition~n~     " .. cp)
+				If a.iscloaked <> 0
+					p_Proutn(", ~b~CLOAKED~w~")
+				EndIf
+			ElseIf jj = 3
+				p_Proutn(" ~B~Position~n~     ")
+				p_Cramlc(0, a.quadx, a.quady)
+				p_Proutn(",")
+				p_Cramlc(0, a.sectx, a.secty)
+			ElseIf jj = 4
+				p_Proutn(" ~B~Life Support~n~  ")
+				If damage[DLIFSUP] <> 0.0
+					If a.condit = IHDOCKED
+						p_Proutn("~r~DAMAGED~w~, supported by starbase")
+					Else
+						p_Proutn("~r~DAMAGED~w~, reserves=" .. p_FmtF(a.lsupres, 4, 2))
+					EndIf
+				Else
+					p_Proutn("~g~ACTIVE~w~")
+				EndIf
+			ElseIf jj = 5
+				p_Proutn(" ~B~Warp Factor~n~   " .. p_FmtF(a.warpfac, 0, 1))
+			ElseIf jj = 6
+				p_Proutn(" ~B~Energy~n~        " .. p_FmtF(a.energy, 0, 2))
+			ElseIf jj = 7
+				p_Proutn(" ~B~Torpedoes~n~     " .. a.torps)
+			ElseIf jj = 8
+				p_Proutn(" ~B~Shields~n~       ")
+				If damage[DSHIELD] <> 0
+					p_Proutn("~r~DAMAGED~w~,")
+				ElseIf a.shldup <> 0
+					p_Proutn("~g~UP~w~,")
+				Else
+					p_Proutn("~b~DOWN~w~,")
+				EndIf
+				p_Proutn(" " .. Int((100.0 * a.shield) / a.inshld + 0.5) .. "% " .. p_FmtF(a.shield, 0, 1) .. " units")
+			ElseIf jj = 9
+				p_Proutn(" ~B~Klingons Left~n~ " .. d.remkl)
+			ElseIf jj = 10
+				p_Proutn(" ~B~Time Left~n~     " .. p_FmtF(d.remtime, 0, 2))
+			EndIf
+		EndIf
+		p_Skip(1)
+		If k <> 0
+			Return
+		EndIf
+	Next
+	If nn
+		p_Chart(1)
+	EndIf
+EndFunction
+
+Function p_Eta()
+	Local key, ix1, ix2, iy1, iy2, wfl, ttime, twarp, tpower, again
+	Local prompt = False
+
+	If damage[DCOMPTR] <> 0.0
+		p_Prout("~r~COMPUTER DAMAGED, USE A POCKET CALCULATOR~w~.")
+		p_Skip(1)
+		Return
+	EndIf
+	If p_Scan() <> IHREAL
+		prompt = True
+		p_Chew()
+		p_Proutn("Destination quadrant and/or sector? ")
+		If p_Scan() <> IHREAL
+			p_Huh()
+			Return
+		EndIf
+	EndIf
+	iy1 = Int(aaitem + 0.5)
+	If p_Scan() <> IHREAL
+		p_Huh()
+		Return
+	EndIf
+	ix1 = Int(aaitem + 0.5)
+	If p_Scan() = IHREAL
+		iy2 = Int(aaitem + 0.5)
+		If p_Scan() <> IHREAL
+			p_Huh()
+			Return
+		EndIf
+		ix2 = Int(aaitem + 0.5)
+	Else
+		; same quadrant
+		ix2 = ix1
+		iy2 = iy1
+		ix1 = a.quady   ; ya got me why x and y are reversed!
+		iy1 = a.quadx
+	EndIf
+
+	If (ix1 > 8) Or (ix1 < 1) Or (iy1 > 8) Or (iy1 < 1) Or (ix2 > 10) Or (ix2 < 1) Or (iy2 > 10) Or (iy2 < 1)
+		p_Huh()
+		Return
+	EndIf
+	a.dist = Sqrt(p_Sq(iy1 - a.quadx + 0.1 * (iy2 - a.sectx)) + p_Sq(ix1 - a.quady + 0.1 * (ix2 - a.secty)))
+	wfl = False
+
+	If prompt
+		p_Prout("Answer \"no\" if you don't know the value:")
+	EndIf
+	again = True
+	While again
+		p_Chew()
+		p_Proutn("Time or arrival date? ")
+		If p_Scan() = IHREAL
+			ttime = aaitem
+			If ttime > d.date
+				ttime = ttime - d.date   ; actually a star date
+			EndIf
+			If ttime <= 0.0000000001
+				p_Prout("~y~We'll never make it, sir~w~.")
+				p_Chew()
+				Return
+			EndIf
+			twarp = (p_Floor(Sqrt((10.0 * a.dist) / ttime) * 10.0) + 1.0) / 10.0
+			If twarp > 10
+				p_Prout("~y~We'll never make it, sir~w~.")
+				p_Chew()
+				Return
+			EndIf
+			If twarp < 1.0
+				twarp = 1.0
+			EndIf
+			again = False
+		Else
+			p_Chew()
+			p_Proutn("Warp factor? ")
+			If p_Scan() = IHREAL
+				wfl = True
+				twarp = aaitem
+				If (twarp < 1.0) Or (twarp > 10.0)
+					p_Huh()
+					Return
+				EndIf
+				again = False
+			Else
+				p_Prout("~m~Captain, certainly you can give me one of these~w~.")
+			EndIf
+		EndIf
+	Wend
+	Repeat
+		p_Chew()
+		ttime = (10.0 * a.dist) / p_Sq(twarp)
+		tpower = a.dist * twarp * twarp * twarp * (a.shldup + 1)
+		again = False
+		If tpower >= a.energy
+			; suggestion from Ethan Staffin -- give amount needed
+			p_Prout("~r~Insufficient energy, sir: we would need ~g~")
+			p_Cramf(tpower, 1, 1)
+			p_Proutn(" ~r~units~w~.")
+			If (a.shldup = 0) Or (tpower > a.energy * 2.0)
+				If wfl = False
+					Return
+				EndIf
+				p_Proutn("New warp factor to try? ")
+				If p_Scan() = IHREAL
+					wfl = True
+					twarp = aaitem
+					If (twarp < 1.0) Or (twarp > 10.0)
+						p_Huh()
+						Return
+					EndIf
+					again = True
+				Else
+					p_Chew()
+					p_Skip(1)
+					Return
+				EndIf
+			Else
+				p_Prout("But if you lower your shields,")
+				p_Proutn("remaining")
+				tpower = tpower / 2
+			EndIf
+		Else
+			p_Proutn("Remaining")
+		EndIf
+		If again = False
+			p_Proutn(" energy will be ")
+			p_Cramf(a.energy - tpower, 1, 1)
+			p_Prout(".")
+			If wfl
+				p_Proutn("~y~And we will arrive at stardate ~g~")
+				p_Cramf(d.date + ttime, 1, 1)
+				p_Prout("~w~.")
+			ElseIf twarp = 1.0
+				p_Prout("~g~Any warp speed is adequate~w~.")
+			Else
+				p_Proutn("~y~Minimum warp needed is ~g~")
+				p_Cramf(twarp, 1, 2)
+				p_Skip(1)
+				p_Proutn("~y~and we will arrive at stardate ~g~")
+				p_Cramf(d.date + ttime, 1, 2)
+				p_Prout("~w~.")
+			EndIf
+			If d.remtime < ttime
+				p_Prout("~r~Unfortunately, the Federation will be destroyed by then~w~.")
+			EndIf
+			If twarp > 6.0
+				p_Prout("~y~You'll be taking risks at that speed, Captain~w~")
+			EndIf
+			If ((a.isatb = 1) And (d.isy = ix1) And (d.isx = iy1) And (future[FSCDBAS] < ttime + d.date)) Or ((future[FCDBAS] < ttime + d.date) And (a.baty = ix1) And (a.batx = iy1))
+				p_Prout("~r~The starbase there will be destroyed by then~w~.")
+			EndIf
+			p_Proutn("New warp factor to try? ")
+			If p_Scan() = IHREAL
+				wfl = True
+				twarp = aaitem
+				If (twarp < 1.0) Or (twarp > 10.0)
+					p_Huh()
+					Return
+				EndIf
+				again = True
+			Else
+				p_Chew()
+				p_Skip(1)
+				Return
+			EndIf
+		EndIf
+	Until again = False
+EndFunction

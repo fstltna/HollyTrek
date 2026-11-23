@@ -1,0 +1,512 @@
+/*
+** finish.hws -- Super Star Trek for Hollywood
+** self destruct, the end of the game, scoring and the plaque
+*/
+
+Function p_Dstrct()
+	; finish with a BANG!
+	p_Chew()
+	If damage[DCOMPTR] <> 0.0
+		p_Prout("~y~Computer damaged; cannot execute destruct sequence~w~.")
+		Return
+	EndIf
+	p_Skip(1)
+	p_Prouts("~b~---WORKING---")
+	p_Skip(1)
+	p_Prout("~m~SELF-DESTRUCT-SEQUENCE-ACTIVATED~w~")
+	p_Prouts("   10")
+	p_Skip(1)
+	p_Prouts("       9")
+	p_Skip(1)
+	p_Prouts("          8")
+	p_Skip(1)
+	p_Prouts("             7")
+	p_Skip(1)
+	p_Prouts("                6")
+	p_Skip(1)
+	p_Prout("ENTER-CORRECT-PASSWORD-TO-CONTINUE-")
+	p_Prout("SELF-DESTRUCT-SEQUENCE-OTHERWISE-")
+	p_Prout("SELF-DESTRUCT-SEQUENCE-WILL-BE-ABORTED")
+	p_Scan()
+	p_Chew()
+	If passwd <> citem
+		p_Prouts("PASSWORD-REJECTED;")
+		p_Skip(1)
+		p_Prout("CONTINUITY-EFFECTED")
+		p_Skip(1)
+		Return
+	EndIf
+	p_Prouts("PASSWORD-ACCEPTED")
+	p_Skip(1)
+	p_Prouts("                   5")
+	p_Skip(1)
+	p_Prouts("                      4")
+	p_Skip(1)
+	p_Prouts("                         3")
+	p_Skip(1)
+	p_Prouts("                            2")
+	p_Skip(1)
+	p_Prouts("                              1")
+	p_Skip(1)
+	If p_Rand() < 0.15
+		p_Prouts("GOODBYE-CRUEL-WORLD")
+		p_Skip(1)
+	EndIf
+	p_Skip(2)
+	p_Kaboom()
+EndFunction
+
+Function p_Kaboom()
+	Local whammo, l
+	p_FxBoom(a.sectx, a.secty)
+	p_Stars()
+	If a.ship = IHE
+		p_Prouts("***")
+	EndIf
+	p_Prouts("~y~********* Entropy of ")
+	p_Crmship()
+	p_Prouts(" maximized *********~w~")
+	p_Skip(1)
+	p_Stars()
+	p_Skip(1)
+	If a.nenhere <> 0
+		whammo = 25.0 * a.energy
+		l = 1
+		While l <= a.nenhere
+			If kpower[l] * kdist[l] <= whammo
+				p_Deadkl(kx[l], ky[l], quad[kx[l]][ky[l]], kx[l], ky[l])
+			EndIf
+			l = l + 1
+		Wend
+	EndIf
+	p_Finish(FDILITHIUM)
+EndFunction
+
+Function p_Finish(ifin)
+	Local igotit = 0
+	Local badpt, goodies, baddies
+
+	a.alldone = 1
+	p_Skip(3)
+	p_Prout("It is stardate " .. p_FmtF(d.date, 0, 1) .. " .")
+	p_Prout("")
+	If ifin = FWON
+		; game has been won
+		If d.nromrem <> 0
+			p_Prout("The remaining ~g~" .. d.nromrem .. "~w~ Romulans surrender to Starfleet Command.")
+		EndIf
+
+		p_Prout("You have smashed the Klingon invasion fleet and saved")
+		p_Prout("the Federation.")
+
+		If (a.alive <> 0) And (a.brigcapacity - d.brigfree > 0)
+			; captured Klingon crew will get transferred to starbase
+			d.kcaptured = d.kcaptured + a.brigcapacity - d.brigfree
+			p_Prout("The ~g~" .. (a.brigcapacity - d.brigfree) .. "~w~ captured Klingons are transferred to Star Fleet Command.")
+		EndIf
+		a.gamewon = 1
+		If a.alive <> 0
+			badpt = 5.0 * d.starkl + a.casual + 10.0 * d.nplankl + 45.0 * a.nhelp + 100.0 * d.basekl
+			If a.ship = IHF
+				badpt = badpt + 100.0
+			ElseIf a.ship = 0
+				badpt = badpt + 200.0
+			EndIf
+			If badpt < 100.0
+				badpt = 0.0   ; close enough!
+			EndIf
+			If (d.date - a.indate < 5.0) Or ((d.killk + d.killc + d.nsckill) / (d.date - a.indate) >= 0.1 * a.skill * (a.skill + 1.0) + 0.1 + 0.008 * badpt)
+				p_Skip(1)
+				p_Prout("In fact, you have done so well that Starfleet Command")
+				If a.skill = SNOVICE
+					p_Prout("promotes you one step in rank from \"Novice\" to \"Fair\".")
+				ElseIf a.skill = SFAIR
+					p_Prout("promotes you one step in rank from \"Fair\" to \"Good\".")
+				ElseIf a.skill = SGOOD
+					p_Prout("promotes you one step in rank from \"Good\" to \"Expert\".")
+				ElseIf a.skill = SEXPERT
+					p_Prout("promotes you to Commodore Emeritus.")
+					p_Skip(1)
+					p_Prout("Now that you think you're really good, try playing")
+					p_Prout("the \"Emeritus\" game. It will splatter your ego.")
+				ElseIf a.skill = SEMERITUS
+					p_Skip(1)
+					p_Prout("Computer-  ERROR-ERROR-ERROR-ERROR")
+					p_Skip(1)
+					p_Prout("  YOUR-SKILL-HAS-EXCEEDED-THE-CAPACITY-OF-THIS-PROGRAM")
+					p_Prout("  THIS-PROGRAM-MUST-SURVIVE")
+					p_Prout("  THIS-PROGRAM-MUST-SURVIVE")
+					p_Prout("  THIS-PROGRAM-MUST-SURVIVE")
+					p_Prout("  THIS-PROGRAM-MUST?- MUST ? - SUR? ? -?  VI")
+					p_Skip(1)
+					p_Prout("Now you can retire and write your own Star Trek game!")
+					p_Skip(1)
+				EndIf
+				If a.skill > SGOOD
+					If a.thawed <> 0
+						p_Prout("You cannot get a citation, so...")
+					Else
+						p_Prout("Do you want your Commodore Emeritus Citation printed?")
+						p_Proutn("(It will be saved as a text file.)")
+						p_Chew()
+						If p_Ja()
+							igotit = 1
+						EndIf
+					EndIf
+				EndIf
+			EndIf
+			; only grant long life if alive (original didn't!)
+			p_Skip(1)
+			p_Prout("~b~LIVE LONG AND PROSPER.~w~")
+		EndIf
+		p_Score(0)
+		If igotit <> 0
+			p_Plaque()
+		EndIf
+		Return
+	ElseIf ifin = FDEPLETE
+		; Federation resources depleted
+		p_Prout("Your time has run out and the Federation has been")
+		p_Prout("conquered.  Your starship is now Klingon property,")
+		p_Prout("and you are put on trial as a war criminal.  On the")
+		p_Proutn("basis of your record, you are ")
+		If d.remkl * 3.0 > a.inkling
+			p_Prout("aquitted.")
+			p_Skip(1)
+			p_Prout("LIVE LONG AND PROSPER.")
+		Else
+			p_Prout("found guilty and")
+			p_Prout("sentenced to death by slow torture.")
+			a.alive = 0
+		EndIf
+		p_Score(0)
+		Return
+	ElseIf ifin = FLIFESUP
+		p_Prout("Your life support reserves have run out, and")
+		p_Prout("you die of thirst, starvation, and asphyxiation.")
+		p_Prout("Your starship is a derelict in space.")
+	ElseIf ifin = FNRG
+		p_Prout("Your energy supply is exhausted.")
+		p_Skip(1)
+		p_Prout("Your starship is a derelict in space.")
+	ElseIf ifin = FBATTLE
+		p_FxBoom(a.sectx, a.secty)
+		p_Proutn("The ")
+		p_Crmship()
+		p_Prout(" has been destroyed in battle.")
+		p_Skip(1)
+		p_Prout("Dulce et decorum est pro patria mori.")
+	ElseIf ifin = FNEG3
+		p_Prout("You have made three attempts to cross the negative energy")
+		p_Prout("barrier which surrounds the galaxy.")
+		p_Skip(1)
+		p_Prout("Your navigation is abominable.")
+		p_Score(0)
+		Return
+	ElseIf ifin = FNOVA
+		p_Prout("Your starship has been destroyed by a nova.")
+		p_Prout("That was a great shot.")
+		p_Skip(1)
+	ElseIf ifin = FSNOVAED
+		p_Proutn("The ")
+		p_Crmship()
+		p_Prout(" has been fried by a supernova.")
+		p_Prout("...Not even cinders remain...")
+	ElseIf ifin = FABANDN
+		p_Prout("You have been captured by the Klingons. If you still")
+		p_Prout("had a starbase to be returned to, you would have been")
+		p_Prout("repatriated and given another chance. Since you have")
+		p_Prout("no starbases, you will be mercilessly tortured to death.")
+	ElseIf ifin = FDILITHIUM
+		p_Prout("Your starship is now an expanding cloud of subatomic particles")
+	ElseIf ifin = FMATERIALIZE
+		p_Prout("Starbase was unable to re-materialize your starship.")
+		p_Prout("Sic transit gloria muntdi")
+	ElseIf ifin = FPHASER
+		p_Proutn("The ")
+		p_Crmship()
+		p_Prout(" has been cremated by its own phasers.")
+	ElseIf ifin = FLOST
+		p_Prout("You and your landing party have been")
+		p_Prout("converted to energy, dissipating through space.")
+	ElseIf ifin = FMINING
+		p_Prout("You are left with your landing party on")
+		p_Prout("a wild jungle planet inhabited by primitive cannibals.")
+		p_Skip(1)
+		p_Prout("They are very fond of \"Captain Kirk\" soup.")
+		p_Skip(1)
+		p_Proutn("Without your leadership, the ")
+		p_Crmship()
+		p_Prout(" is destroyed.")
+	ElseIf ifin = FDPLANET
+		p_Prout("You and your mining party perish.")
+		p_Skip(1)
+		p_Prout("That was a great shot.")
+		p_Skip(1)
+	ElseIf (ifin = FSSC) Or (ifin = FPNOVA)
+		If ifin = FSSC
+			p_Prout("The Galileo is instantly annihilated by the supernova.")
+		EndIf
+		p_Prout("You and your mining party are atomized.")
+		p_Skip(1)
+		p_Proutn("Mr. Spock takes command of the ")
+		p_Crmship()
+		p_Prout(" and")
+		p_Prout("joins the Romulans, reigning terror on the Federation.")
+	ElseIf ifin = FSTRACTOR
+		p_Prout("The shuttle craft Galileo is also caught,")
+		p_Prout("and breaks up under the strain.")
+		p_Skip(1)
+		p_Prout("Your debris is scattered for millions of miles.")
+		p_Proutn("Without your leadership, the ")
+		p_Crmship()
+		p_Prout(" is destroyed.")
+	ElseIf ifin = FDRAY
+		p_Prout("The mutants attack and kill Spock.")
+		p_Prout("Your ship is captured by Klingons, and")
+		p_Prout("your crew is put on display in a Klingon zoo.")
+	ElseIf ifin = FTRIBBLE
+		p_Prout("Tribbles consume all remaining water,")
+		p_Prout("food, and oxygen on your ship.")
+		p_Skip(1)
+		p_Prout("You die of thirst, starvation, and asphyxiation.")
+		p_Prout("Your starship is a derelict in space.")
+	ElseIf ifin = FHOLE
+		p_Prout("Your ship is drawn to the center of the black hole.")
+		p_Prout("You are crushed into extremely dense matter.")
+	ElseIf ifin = FCLOAK
+		a.ncviol = a.ncviol + 1
+		p_Prout("You have violated the Treaty of Algeron.")
+		p_Prout("The Romulan Empire can never trust you again.")
+	EndIf
+	If (ifin <> FWON) And (ifin <> FCLOAK) And (a.iscloaked <> 0)
+		p_Prout("Your ship was cloaked so your subspace radio did not receive anything.")
+		p_Prout("You may have missed some warning messages.")
+		p_Skip(1)
+	EndIf
+
+	If a.ship = IHF
+		a.ship = 0
+	ElseIf a.ship = IHE
+		a.ship = IHF
+	EndIf
+	a.alive = 0
+	If d.remkl <> 0
+		goodies = d.remres / a.inresor
+		baddies = (d.remkl + 2.0 * d.remcom) / (a.inkling + 2.0 * a.incom)
+		If goodies / baddies >= 1.0 + 0.5 * p_Rand()
+			p_Prout("As a result of your actions, a treaty with the Klingon")
+			p_Prout("Empire has been signed. The terms of the treaty are")
+			If goodies / baddies >= 3.0 + p_Rand()
+				p_Prout("favorable to the Federation.")
+				p_Skip(1)
+				p_Prout("Congratulations!")
+			Else
+				p_Prout("highly unfavorable to the Federation.")
+			EndIf
+		Else
+			p_Prout("The Federation will be destroyed.")
+		EndIf
+	Else
+		p_Prout("Since you took the last Klingon with you, you are a")
+		p_Prout("martyr and a hero. Someday maybe they'll erect a")
+		p_Prout("statue in your memory. Rest in peace, and try not")
+		p_Prout("to think about pigeons.")
+		a.gamewon = 1
+	EndIf
+	p_Score(0)
+EndFunction
+
+; one line of the score table, like printf("%6d text %5d")
+Function p_ScoreLine(n, one, many, pts)
+	If n > 1
+		p_Prout("~g~" .. p_FmtI(n, 6) .. "~w~ " .. many .. "~g~" .. p_FmtI(pts, 5) .. "~w~")
+	Else
+		p_Prout("~g~" .. p_FmtI(n, 6) .. "~w~ " .. one .. "~g~" .. p_FmtI(pts, 5) .. "~w~")
+	EndIf
+EndFunction
+
+Function p_Score(ingame)
+	Local timused = d.date - a.indate
+	Local ithperd, iwon, klship
+	Local dnromrem = d.nromrem   ; leave global value alone
+
+	If ingame = 0
+		p_Pause(0)
+	EndIf
+
+	iskill = a.skill
+	If ((timused = 0) Or (d.remkl <> 0)) And (timused < 5.0)
+		timused = 5.0
+	EndIf
+	perdate = (d.killc + d.killk + d.nsckill) / timused
+	ithperd = Int(500 * perdate + 0.5)
+	iwon = 0
+	If a.gamewon <> 0
+		iwon = 100 * a.skill
+	EndIf
+	If a.ship = IHE
+		klship = 0
+	ElseIf a.ship = IHF
+		klship = 1
+	Else
+		klship = 2
+	EndIf
+	If (a.gamewon = 0) Or (ingame <> 0)
+		dnromrem = 0   ; none captured if no win or if still in the game
+	EndIf
+	iscore = 10 * d.killk + 50 * d.killc + ithperd + iwon - 100 * d.basekl - 100 * klship - 45 * a.nhelp - 5 * d.starkl - a.casual + 20 * d.nromkl + 200 * d.nsckill - 10 * d.nplankl + dnromrem
+	iscore = iscore - 100 * a.ncviol
+	iscore = iscore + 3 * d.kcaptured
+	If a.alive = 0
+		iscore = iscore - 200
+	EndIf
+	p_Skip(2)
+	If ingame <> 0
+		p_Prout("Your score so far --")
+	Else
+		p_Prout("Your score --")
+	EndIf
+	If d.nromkl <> 0
+		p_ScoreLine(d.nromkl, "Romulan ship destroyed             ", "Romulan ships destroyed            ", 20 * d.nromkl)
+	EndIf
+	If dnromrem <> 0
+		p_ScoreLine(dnromrem, "Romulan ship captured              ", "Romulan ships captured             ", dnromrem)
+	EndIf
+	If d.killk <> 0
+		p_ScoreLine(d.killk, "ordinary Klingon ship destroyed    ", "ordinary Klingon ships destroyed   ", 10 * d.killk)
+	EndIf
+	If d.killc <> 0
+		p_ScoreLine(d.killc, "Klingon Commander ship destroyed   ", "Klingon Commander ships destroyed  ", 50 * d.killc)
+	EndIf
+	If d.nsckill <> 0
+		p_ScoreLine(d.nsckill, "Super-Commander ship destroyed     ", "Super-Commander ship destroyed     ", 200 * d.nsckill)
+	EndIf
+	If ithperd <> 0
+		p_Prout("~g~" .. p_FmtF(perdate, 6, 2) .. "~w~ Klingons per stardate              ~g~" .. p_FmtI(ithperd, 5) .. "~w~")
+	EndIf
+	If d.kcaptured <> 0
+		p_ScoreLine(d.kcaptured, "Klingon captured                   ", "Klingons captured                  ", 3 * d.kcaptured)
+	EndIf
+	If d.starkl <> 0
+		p_ScoreLine(d.starkl, "star destroyed by your action      ", "stars destroyed by your action     ", -5 * d.starkl)
+	EndIf
+	If d.nplankl <> 0
+		p_ScoreLine(d.nplankl, "planet destroyed by your action    ", "planets destroyed by your action   ", -10 * d.nplankl)
+	EndIf
+	If d.basekl <> 0
+		p_ScoreLine(d.basekl, "base destroyed by your action      ", "bases destroyed by your action     ", -100 * d.basekl)
+	EndIf
+	If a.nhelp <> 0
+		p_ScoreLine(a.nhelp, "call for help from starbase        ", "calls for help from starbase       ", -45 * a.nhelp)
+	EndIf
+	If a.casual <> 0
+		p_ScoreLine(a.casual, "casualty incurred                  ", "casualties incurred                ", -a.casual)
+	EndIf
+	If klship <> 0
+		p_ScoreLine(klship, "ship lost or destroyed             ", "ships lost or destroyed            ", -100 * klship)
+	EndIf
+	If a.ncviol > 0
+		p_ScoreLine(a.ncviol, "Treaty of Algeron violation        ", "Treaty of Algeron violations       ", -100 * a.ncviol)
+	EndIf
+	If a.alive = 0
+		p_Prout("Penalty for getting yourself killed        -200")
+	EndIf
+	If a.gamewon <> 0
+		p_Skip(1)
+		p_Proutn("Bonus for winning ")
+		If a.skill = SNOVICE
+			p_Proutn("Novice game  ")
+		ElseIf a.skill = SFAIR
+			p_Proutn("Fair game    ")
+		ElseIf a.skill = SGOOD
+			p_Proutn("Good game    ")
+		ElseIf a.skill = SEXPERT
+			p_Proutn("Expert game  ")
+		ElseIf a.skill = SEMERITUS
+			p_Proutn("Emeritus game")
+		EndIf
+		p_Prout("           ~g~" .. p_FmtI(iwon, 5) .. "~w~")
+	EndIf
+	p_Skip(2)
+	p_Prout("TOTAL SCORE                               ~g~" .. p_FmtI(iscore, 5) .. "~w~")
+	If (ingame <> 0) And (a.skill < SGOOD)
+		p_Prout("~m~REMEMBER--The score doesn't really matter until the mission is accomplished!~w~")
+	EndIf
+EndFunction
+
+Function p_Plaque()
+	Local fname, winner, nskip, lv, s
+
+	p_Skip(2)
+	fname = ""
+	While fname = ""
+		p_Proutn("File name for your plaque:")
+		fname = p_GetLine()
+		fname = p_CleanName(fname)
+		If fname = ""
+			p_Prout("Invalid name.")
+		EndIf
+	Wend
+
+	p_Proutn("Enter name to go on plaque (up to 30 characters):")
+	winner = p_Left(p_GetLine(), 30)
+	nskip = Int(64 - StrLen(winner) / 2)
+
+	OpenFile(2, fname, #MODE_WRITE)
+	WriteLine(2, "")
+	WriteLine(2, "")
+	WriteLine(2, "")
+	WriteLine(2, "")
+	; draw Enterprise picture
+	WriteLine(2, "                                                                EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE")
+	WriteLine(2, "                                      EEE                      E  : :                                         :  E")
+	WriteLine(2, "                                    EE   EEE                   E  : :                   NCC-1701              :  E")
+	WriteLine(2, "                    EEEEEEEEEEEEEEEE        EEEEEEEEEEEEEEE    E  : :                                         : E")
+	WriteLine(2, "                     E                                     E    EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE")
+	WriteLine(2, "                      EEEEEEEEE               EEEEEEEEEEEEE                 E  E")
+	WriteLine(2, "                               EEEEEEE   EEEEE    E          E              E  E")
+	WriteLine(2, "                                      EEE           E          E            E  E")
+	WriteLine(2, "                                                       E         E          E  E")
+	WriteLine(2, "                                                         EEEEEEEEEEEEE      E  E")
+	WriteLine(2, "                                                      EEE :           EEEEEEE  EEEEEEEE")
+	WriteLine(2, "                                                    :E    :                 EEEE       E")
+	WriteLine(2, "                                                   .-E   -:-----                       E")
+	WriteLine(2, "                                                    :E    :                            E")
+	WriteLine(2, "                                                      EE  :                    EEEEEEEE")
+	WriteLine(2, "                                                       EEEEEEEEEEEEEEEEEEEEEEE")
+	WriteLine(2, "")
+	WriteLine(2, "")
+	WriteLine(2, "")
+	WriteLine(2, "                                                       U. S. S. ENTERPRISE")
+	WriteLine(2, "")
+	WriteLine(2, "")
+	WriteLine(2, "")
+	WriteLine(2, "")
+	WriteLine(2, "                                  For demonstrating outstanding ability as a starship captain")
+	WriteLine(2, "")
+	WriteLine(2, "                                                Starfleet Command bestows to you")
+	WriteLine(2, "")
+	WriteLine(2, p_Spaces(nskip) .. winner)
+	WriteLine(2, "")
+	WriteLine(2, "                                                           the rank of")
+	WriteLine(2, "")
+	WriteLine(2, "                                                       \"Commodore Emeritus\"")
+	WriteLine(2, "")
+	If iskill = SEXPERT
+		lv = " Expert level"
+	ElseIf iskill = SEMERITUS
+		lv = "Emeritus level"
+	Else
+		lv = " Cheat level"
+	EndIf
+	WriteLine(2, "                                                          " .. lv)
+	WriteLine(2, "")
+	WriteLine(2, "                                                 This day of " .. GetDate())
+	WriteLine(2, "")
+	WriteLine(2, "                                                        Your score:  " .. iscore)
+	WriteLine(2, "")
+	WriteLine(2, "                                                    Klingons per stardate:  " .. p_FmtF(perdate, 0, 2))
+	CloseFile(2)
+	p_Prout("Plaque saved as " .. fname .. ".")
+EndFunction

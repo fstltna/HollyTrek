@@ -1,0 +1,549 @@
+/*
+** io.hws -- Super Star Trek for Hollywood
+**
+** Console emulation, the input scanner, number formatting,
+** math helpers and the random number generator.
+**
+** Colour markup used in all game text (replaces the ANSI codes
+** of the BBS version):
+**   ~r~ red   ~g~ green  ~y~ yellow  ~b~ blue  ~m~ magenta
+**   ~c~ cyan  ~w~ white  ~B~ bold    ~n~ normal
+*/
+
+; ------------------------------------------------------------------
+; Math helpers (self contained so they behave the same everywhere)
+; ------------------------------------------------------------------
+
+Function p_Ln(x)
+	Local k, y, y2, sum, term, n
+	If x <= 0
+		Return(-1000)
+	EndIf
+	k = 0
+	While x > 2
+		x = x / 2
+		k = k + 1
+	Wend
+	While x < 1
+		x = x * 2
+		k = k - 1
+	Wend
+	y = (x - 1) / (x + 1)
+	y2 = y * y
+	sum = 0
+	term = y
+	For n = 1 To 61 Step 2
+		sum = sum + term / n
+		term = term * y2
+	Next
+	Return(2 * sum + k * 0.6931471805599453)
+EndFunction
+
+Function p_Exp(x)
+	Local n, r, sum, term, i
+	n = Int(x / 0.6931471805599453)
+	r = x - n * 0.6931471805599453
+	sum = 1
+	term = 1
+	For i = 1 To 30
+		term = term * r / i
+		sum = sum + term
+	Next
+	If n > 0
+		For i = 1 To n
+			sum = sum * 2
+		Next
+	ElseIf n < 0
+		For i = 1 To -n
+			sum = sum / 2
+		Next
+	EndIf
+	Return(sum)
+EndFunction
+
+Function p_Pow(b, e)
+	If b <= 0
+		Return(0)
+	EndIf
+	Return(p_Exp(e * p_Ln(b)))
+EndFunction
+
+Function p_Atan2(y, x)
+	If x > 0
+		Return(ATan(y / x))
+	ElseIf x < 0
+		If y >= 0
+			Return(ATan(y / x) + PI)
+		Else
+			Return(ATan(y / x) - PI)
+		EndIf
+	Else
+		If y > 0
+			Return(PI / 2)
+		ElseIf y < 0
+			Return(-PI / 2)
+		EndIf
+	EndIf
+	Return(0)
+EndFunction
+
+Function p_Floor(x)
+	Local i = Int(x)
+	If i > x
+		i = i - 1
+	EndIf
+	Return(i)
+EndFunction
+
+Function p_Mod(x, m)
+	Return(x - Int(x / m) * m)
+EndFunction
+
+Function p_Sq(x)
+	Return(x * x)
+EndFunction
+
+Function p_IMin(x, y)
+	If x < y
+		Return(x)
+	EndIf
+	Return(y)
+EndFunction
+
+; ------------------------------------------------------------------
+; Random numbers: Park-Miller "minimal standard" generator using
+; Schrage's method, so every value stays below 2^31. Deterministic,
+; which keeps tournament games reproducible.
+; ------------------------------------------------------------------
+
+g_seed = 1
+
+Function p_Srand(n)
+	n = Int(Abs(n))
+	g_seed = p_Mod(n, 2147483647)
+	If g_seed = 0
+		g_seed = 1
+	EndIf
+EndFunction
+
+Function p_Randomize()
+	p_Srand(Rnd(2147483646) + 1)
+EndFunction
+
+Function p_Rand()
+	Local hi, lo, t
+	hi = Int(g_seed / 127773)
+	lo = g_seed - hi * 127773
+	t = 16807 * lo - 2836 * hi
+	If t <= 0
+		t = t + 2147483647
+	EndIf
+	g_seed = t
+	Return((g_seed - 1) / 2147483646)
+EndFunction
+
+Function p_Expran(avrage)
+	Return(-avrage * p_Ln(0.0000001 + p_Rand()))
+EndFunction
+
+Function p_Iran8()
+	Return(Int(p_Rand() * 8.0 + 1.0), Int(p_Rand() * 8.0 + 1.0))
+EndFunction
+
+Function p_Iran10()
+	Return(Int(p_Rand() * 10.0 + 1.0), Int(p_Rand() * 10.0 + 1.0))
+EndFunction
+
+; ------------------------------------------------------------------
+; Number formatting (printf replacements)
+; ------------------------------------------------------------------
+
+Function p_Str(n)
+	Return(ToString(n))
+EndFunction
+
+; LeftStr/RightStr that never ask for more characters than there are
+Function p_Left(s, n)
+	If n <= 0
+		Return("")
+	EndIf
+	If n >= StrLen(s)
+		Return(s)
+	EndIf
+	Return(LeftStr(s, n))
+EndFunction
+
+Function p_Right(s, n)
+	If n <= 0
+		Return("")
+	EndIf
+	If n >= StrLen(s)
+		Return(s)
+	EndIf
+	Return(RightStr(s, n))
+EndFunction
+
+Function p_Spaces(n)
+	Local s = ""
+	While n > 0
+		s = s .. " "
+		n = n - 1
+	Wend
+	Return(s)
+EndFunction
+
+Function p_PadL(s, w)
+	While StrLen(s) < w
+		s = " " .. s
+	Wend
+	Return(s)
+EndFunction
+
+Function p_PadR(s, w)
+	While StrLen(s) < w
+		s = s .. " "
+	Wend
+	Return(s)
+EndFunction
+
+; like sprintf("%*.*f", w, dec, x)
+Function p_FmtF(x, w, dec)
+	Local neg, m, v, ip, fp, s, fs, i
+	neg = False
+	If x < 0
+		neg = True
+		x = -x
+	EndIf
+	m = 1
+	For i = 1 To dec
+		m = m * 10
+	Next
+	v = Int(x * m + 0.5)
+	ip = Int(v / m)
+	fp = v - ip * m
+	If fp < 0
+		ip = ip - 1
+		fp = fp + m
+	ElseIf fp >= m
+		ip = ip + 1
+		fp = fp - m
+	EndIf
+	s = p_Str(ip)
+	If dec > 0
+		fs = p_Str(fp)
+		While StrLen(fs) < dec
+			fs = "0" .. fs
+		Wend
+		s = s .. "." .. fs
+	EndIf
+	If neg And (v > 0)
+		s = "-" .. s
+	EndIf
+	Return(p_PadL(s, w))
+EndFunction
+
+; like sprintf("%*d", w, i) -- i is truncated like a C int
+Function p_FmtI(i, w)
+	Return(p_PadL(p_Str(Int(i)), w))
+EndFunction
+
+; ------------------------------------------------------------------
+; The console log
+; ------------------------------------------------------------------
+
+g_log = {}          ; finished lines, g_log[0 .. g_logn-1]
+g_logn = 0
+g_cur = ""          ; line being built
+g_linecount = 0     ; for paging, like the original
+g_scroll = 0        ; lines scrolled back by the user
+g_rows = 18         ; visible console rows (set by gfx)
+
+g_line = ""         ; current input line for the scanner
+g_pos = 0           ; scan position (0 + empty line = need new line)
+aaitem = 0.0
+citem = ""
+
+g_mode = "none"     ; "line", "key" or "none"
+g_input = ""
+g_lineReady = False
+g_keyhit = False
+g_history = {}
+g_histn = 0
+g_histpos = 0
+
+IHEOL = 0
+IHALPHA = 1
+IHREAL = 2
+
+Function p_NewLine()
+	Local i, nl
+	g_log[g_logn] = g_cur
+	g_logn = g_logn + 1
+	g_cur = ""
+	If g_logn > 800
+		nl = {}
+		For i = 0 To 499
+			nl[i] = g_log[g_logn - 500 + i]
+		Next
+		g_log = nl
+		g_logn = 500
+	EndIf
+	g_scroll = 0
+EndFunction
+
+Function p_ClearScreen()
+	g_log = {}
+	g_logn = 0
+	g_cur = ""
+	g_scroll = 0
+EndFunction
+
+Function p_Proutn(s)
+	Local p
+	s = ReplaceStr(s, "\r", "")
+	p = FindStr(s, "\n")
+	While p >= 0
+		g_cur = g_cur .. p_Left(s, p)
+		p_NewLine()
+		s = p_Right(s, StrLen(s) - p - 1)
+		p = FindStr(s, "\n")
+	Wend
+	g_cur = g_cur .. s
+EndFunction
+
+Function p_Skip(i)
+	While i > 0
+		i = i - 1
+		g_linecount = g_linecount + 1
+		If g_linecount >= g_rows - 1
+			p_Pause(0)
+		Else
+			p_NewLine()
+		EndIf
+	Wend
+EndFunction
+
+Function p_Prout(s)
+	p_Proutn(s)
+	p_Skip(1)
+EndFunction
+
+; print slowly (keeps colour markup intact)
+Function p_Prouts(s)
+	Local n, i, ch
+	n = StrLen(s)
+	i = 0
+	While i < n
+		ch = MidStr(s, i, 1)
+		If (ch = "~") And (i + 2 < n)
+			If MidStr(s, i + 2, 1) = "~"
+				ch = MidStr(s, i, 3)
+				i = i + 2
+			EndIf
+		EndIf
+		g_cur = g_cur .. ch
+		i = i + 1
+		If ch <> " "
+			p_Redraw()
+			Wait(18, #MILLISECONDS)
+		EndIf
+	Wend
+EndFunction
+
+Function p_Pause(i)
+	If a.iscloaked <> 0
+		Return
+	EndIf
+	p_NewLine()
+	If i = 1
+		If a.skill > SFAIR
+			p_Prout("~y~[ANNOUNCEMENT ARRIVING...]~n~")
+		Else
+			p_Prout("~y~[IMPORTANT ANNOUNCEMENT ARRIVING -- PRESS ANY KEY OR CLICK]~n~")
+		EndIf
+		p_GetKey()
+	Else
+		If a.skill > SFAIR
+			p_Proutn("~y~[CONTINUE?]~n~")
+		Else
+			p_Proutn("~y~[PRESS ANY KEY OR CLICK TO CONTINUE]~n~")
+		EndIf
+		p_GetKey()
+		g_cur = ""
+	EndIf
+	If i <> 0
+		p_ClearScreen()
+	EndIf
+	g_linecount = 0
+EndFunction
+
+; ------------------------------------------------------------------
+; Blocking input. Game logic runs in the main flow; these loops
+; pump Hollywood events until the player has answered.
+; ------------------------------------------------------------------
+
+Function p_GetKey()
+	g_mode = "key"
+	g_keyhit = False
+	p_Redraw()
+	While g_keyhit = False
+		WaitEvent()
+	Wend
+	g_mode = "none"
+EndFunction
+
+Function p_GetLine()
+	Local s
+	g_mode = "line"
+	g_input = ""
+	g_lineReady = False
+	g_histpos = g_histn
+	p_Redraw()
+	While g_lineReady = False
+		WaitEvent()
+	Wend
+	g_mode = "none"
+	s = g_input
+	g_input = ""
+	g_cur = g_cur .. "~c~" .. s .. "~n~"
+	p_NewLine()
+	If StrLen(s) > 0
+		g_history[g_histn] = s
+		g_histn = g_histn + 1
+	EndIf
+	p_Redraw()
+	Return(s)
+EndFunction
+
+; ------------------------------------------------------------------
+; The scanner (scan/chew/ja/isit of the original)
+; ------------------------------------------------------------------
+
+Function p_Chew()
+	g_linecount = 0
+	g_line = ""
+	g_pos = 0
+EndFunction
+
+; return IHEOL next time
+Function p_Chew2()
+	g_linecount = 0
+	g_line = ""
+	g_pos = 1
+EndFunction
+
+Function p_IsDigit(ch)
+	If ch = ""
+		Return(False)
+	EndIf
+	Return(FindStr("0123456789", ch) >= 0)
+EndFunction
+
+Function p_Scan()
+	Local n, ch, start, num, frac, scale, digits, neg, s
+
+	g_linecount = 0
+	aaitem = 0.0
+	citem = ""
+
+	n = StrLen(g_line)
+	If g_pos >= n
+		If g_pos > 0
+			p_Chew()
+			Return(IHEOL)
+		EndIf
+		g_line = p_GetLine()
+		g_pos = 0
+		n = StrLen(g_line)
+	EndIf
+	; skip leading white space
+	While (g_pos < n) And (MidStr(g_line, g_pos, 1) = " ")
+		g_pos = g_pos + 1
+	Wend
+	If g_pos >= n
+		p_Chew()
+		Return(IHEOL)
+	EndIf
+	ch = MidStr(g_line, g_pos, 1)
+	If p_IsDigit(ch) Or (ch = "+") Or (ch = "-") Or (ch = ".")
+		; treat as a number (like sscanf %lf)
+		neg = False
+		If (ch = "+") Or (ch = "-")
+			If ch = "-"
+				neg = True
+			EndIf
+			g_pos = g_pos + 1
+		EndIf
+		num = 0
+		digits = 0
+		While (g_pos < n) And p_IsDigit(MidStr(g_line, g_pos, 1))
+			num = num * 10 + FindStr("0123456789", MidStr(g_line, g_pos, 1))
+			g_pos = g_pos + 1
+			digits = digits + 1
+		Wend
+		If (g_pos < n) And (MidStr(g_line, g_pos, 1) = ".")
+			g_pos = g_pos + 1
+			scale = 0.1
+			While (g_pos < n) And p_IsDigit(MidStr(g_line, g_pos, 1))
+				num = num + scale * FindStr("0123456789", MidStr(g_line, g_pos, 1))
+				scale = scale / 10
+				g_pos = g_pos + 1
+				digits = digits + 1
+			Wend
+		EndIf
+		If digits = 0
+			; invalid numbers are ignored
+			g_line = ""
+			g_pos = 0
+			Return(IHEOL)
+		EndIf
+		If neg
+			num = -num
+		EndIf
+		aaitem = num
+		Return(IHREAL)
+	EndIf
+	; treat as alpha
+	s = ""
+	While (g_pos < n) And (MidStr(g_line, g_pos, 1) <> " ")
+		If StrLen(s) < 9
+			s = s .. LowerStr(MidStr(g_line, g_pos, 1))
+		EndIf
+		g_pos = g_pos + 1
+	Wend
+	citem = s
+	Return(IHALPHA)
+EndFunction
+
+; compares s to the scanned citem, to the length of citem
+Function p_Isit(s)
+	Local n = StrLen(citem)
+	If n < 1
+		n = 1
+	EndIf
+	If StrLen(citem) > StrLen(s)
+		Return(False)
+	EndIf
+	Return(p_Left(s, n) = p_Left(citem, n))
+EndFunction
+
+Function p_Ja()
+	p_Chew()
+	Repeat
+		p_Scan()
+		p_Chew()
+		If p_Left(citem, 1) = "y"
+			Return(True)
+		EndIf
+		If p_Left(citem, 1) = "n"
+			Return(False)
+		EndIf
+		p_Proutn("Please answer with \"Y\" or \"N\":")
+	Forever
+EndFunction
+
+Function p_Huh()
+	p_Chew()
+	p_Skip(1)
+	p_Prout("~y~Beg your pardon, Captain?~n~")
+EndFunction

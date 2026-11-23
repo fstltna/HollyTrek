@@ -1,0 +1,832 @@
+/*
+** setup.hws -- Super Star Trek for Hollywood
+** prelim, freeze/thaw, abandon ship, game setup, new quadrant
+*/
+
+Function p_Prelim()
+	Local s
+	If Exists("SST_Logo.txt")
+		OpenFile(1, "SST_Logo.txt", #MODE_READ)
+		While Eof(1) = False
+			s = ReplaceStr(ReadLine(1), "\r", "")
+			p_Prout("~y~" .. ReplaceStr(s, "~", "-") .. "~n~")
+		Wend
+		CloseFile(1)
+	EndIf
+	p_Skip(2)
+	p_Prout("~B~~m~-SUPER- STAR TREK~n~")
+	p_Skip(1)
+	p_Prout("Latest update-21 Sept 78")
+	p_Prout("BBS Door Version ~g~1.1.0~w~ - Hollywood edition - Get it at ~y~https://SynchronetBBS.org~w~")
+	p_Skip(1)
+EndFunction
+
+Function p_CleanName(s)
+	Local bad = "/<>&*!@$%^()'\"\\|?[]{}`~:"
+	Local r = ""
+	Local i, ch
+	For i = 0 To StrLen(s) - 1
+		ch = MidStr(s, i, 1)
+		If (FindStr(bad, ch) >= 0) Or (ch = Chr(9))
+			ch = "_"
+		EndIf
+		r = r .. ch
+	Next
+	Return(p_Left(r, 23))
+EndFunction
+
+Function p_Freeze(boss)
+	Local key, fname, t
+	If boss
+		fname = "emsave.trk"
+	Else
+		key = p_Scan()
+		If key = IHEOL
+			p_Proutn("File name(9 characters maximum): ")
+			key = p_Scan()
+		EndIf
+		If key <> IHALPHA
+			p_Huh()
+			Return
+		EndIf
+		p_Chew()
+		fname = citem
+		If FindStr(fname, ".") < 0
+			fname = fname .. ".trk"
+		EndIf
+	EndIf
+	fname = p_CleanName(fname)
+	t = {d = d, snapsht = snapsht, quad = quad, kx = kx, ky = ky,
+		starch = starch, kpower = kpower, kdist = kdist, kavgd = kavgd,
+		damage = damage, future = future, a = a, passwd = passwd}
+	OpenFile(1, fname, #MODE_WRITE)
+	WriteTable(1, t)
+	CloseFile(1)
+EndFunction
+
+Function p_Thaw()
+	Local key, fname, t, err
+	passwd = ""
+	key = p_Scan()
+	If key = IHEOL
+		p_Proutn("File name: ")
+		key = p_Scan()
+	EndIf
+	If key <> IHALPHA
+		p_Huh()
+		Return
+	EndIf
+	p_Chew()
+	fname = citem
+	If FindStr(fname, ".") < 0
+		fname = fname .. ".trk"
+	EndIf
+	fname = p_CleanName(fname)
+	If Exists(fname) = False
+		p_Proutn("Can't find game file ")
+		p_Proutn(fname)
+		p_Skip(1)
+		Return
+	EndIf
+	OpenFile(1, fname, #MODE_READ)
+	ExitOnError(False)
+	t = ReadTable(1)
+	err = GetLastError()
+	ExitOnError(True)
+	CloseFile(1)
+	If (err <> 0) Or (GetType(t) <> #TABLE)
+		p_Proutn("Can't read game file ")
+		p_Proutn(fname)
+		p_Skip(1)
+		Return
+	EndIf
+	d = t.d
+	snapsht = t.snapsht
+	quad = t.quad
+	kx = t.kx
+	ky = t.ky
+	starch = t.starch
+	kpower = t.kpower
+	kdist = t.kdist
+	kavgd = t.kavgd
+	damage = t.damage
+	future = t.future
+	a = t.a
+	passwd = t.passwd
+EndFunction
+
+Function p_Abandn()
+	Local nb, l, found
+	p_Chew()
+	If a.condit = IHDOCKED
+		If a.ship <> IHE
+			p_Prout("You cannot abandon Ye Faerie Queene.")
+			Return
+		EndIf
+	Else
+		; must take shuttle craft to exit
+		If damage[DSHUTTL] = -1
+			p_Prout("Ye Faerie Queene has no shuttle craft.")
+			Return
+		EndIf
+		If damage[DSHUTTL] < 0
+			p_Prout("Shuttle craft now serving Big Mac's.")
+			Return
+		EndIf
+		If damage[DSHUTTL] > 0
+			p_Prout("Shuttle craft damaged.")
+			Return
+		EndIf
+		If a.landed = 1
+			p_Prout("You must be aboard the Enterprise.")
+			Return
+		EndIf
+		If a.iscraft <> 1
+			p_Prout("Shuttle craft not currently available.")
+			Return
+		EndIf
+		p_Skip(1)
+		p_Prouts("***ABANDON SHIP!  ABANDON SHIP!")
+		p_Skip(1)
+		p_Prouts("***ALL HANDS ABANDON SHIP!")
+		p_Skip(2)
+		p_Prout("Captain and crew escape in shuttle craft.")
+		p_Prout("Remainder of ship's complement beam down")
+		p_Prout("to nearest habitable planet.")
+		If d.rembase = 0
+			; Oops! no place to go...
+			p_Finish(FABANDN)
+			Return
+		EndIf
+		; if at least one base left, give 'em the Faerie Queene
+		p_Skip(1)
+		a.icrystl = 0
+		a.nprobes = 0
+		p_Prout("You are captured by Klingons and released to")
+		p_Prout("the Federation in a prisoner-of-war exchange.")
+		nb = Int(p_Rand() * d.rembase + 1)
+		; set up quadrant and position FQ adjacent to base
+		If (a.quadx <> d.baseqx[nb]) Or (a.quady <> d.baseqy[nb])
+			a.quadx = d.baseqx[nb]
+			a.quady = d.baseqy[nb]
+			a.sectx = 5
+			a.secty = 5
+			p_Newqad(1)
+		EndIf
+		Repeat
+			; position next to base by trial and error
+			quad[a.sectx][a.secty] = IHDOT
+			found = False
+			For l = 1 To 10
+				If found = False
+					a.sectx = Int(3.0 * p_Rand() - 1.0 + a.basex)
+					a.secty = Int(3.0 * p_Rand() - 1.0 + a.basey)
+					If (a.sectx >= 1) And (a.sectx <= 10) And (a.secty >= 1) And (a.secty <= 10)
+						If quad[a.sectx][a.secty] = IHDOT
+							found = True
+						EndIf
+					EndIf
+				EndIf
+			Next
+			If found = False
+				a.sectx = 5
+				a.secty = 5
+				p_Newqad(1)
+			EndIf
+		Until found
+	EndIf
+	; get new commission
+	a.ship = IHF
+	quad[a.sectx][a.secty] = IHF
+	p_Prout("Starfleet puts you in command of another ship,")
+	p_Prout("the Faerie Queene, which is antiquated but,")
+	p_Prout("still useable.")
+	If a.icrystl <> 0
+		p_Prout("The dilithium crystals have been moved.")
+	EndIf
+	a.imine = 0
+	a.iscraft = 0  ; Galileo disappears
+	a.brigcapacity = 300
+	d.brigfree = a.brigcapacity
+	a.iscloaked = 0
+	a.iscloaking = 0
+	; resupply ship
+	a.condit = IHDOCKED
+	For l = 1 To ndevice
+		damage[l] = 0.0
+	Next
+	damage[DSHUTTL] = -1
+	a.inenrg = 3000.0
+	a.energy = 3000.0
+	a.inshld = 1250.0
+	a.shield = 1250.0
+	a.intorps = 6
+	a.torps = 6
+	a.inlsr = 3.0
+	a.lsupres = 3.0
+	a.shldup = 0
+	a.warpfac = 5.0
+	a.wfacsq = 25.0
+EndFunction
+
+Function p_Setup()
+	Local i, j, krem, klumper, ix, iy, contflag, distq, r, klump, k, dup
+	p_ResetState()
+	g_ingame = False
+	a.alldone = 0
+	a.gamewon = 0
+	; decide how many of everything
+	If p_Choose()
+		g_ingame = True
+		Return   ; frozen game
+	EndIf
+	; prepare the Enterprise
+	a.ship = IHE
+	a.inenrg = 5000.0
+	a.energy = 5000.0
+	a.inshld = 2500.0
+	a.shield = 2500.0
+	a.shldchg = 0
+	a.shldup = 0
+	a.inlsr = 4.0
+	a.lsupres = 4.0
+	a.quadx, a.quady = p_Iran8()
+	a.sectx, a.secty = p_Iran10()
+	a.intorps = 10
+	a.torps = 10
+	a.nprobes = Int(3.0 * p_Rand() + 2.0)   ; give them 2-4 of these wonders
+	a.warpfac = 5.0
+	a.wfacsq = a.warpfac * a.warpfac
+	For i = 0 To ndevice
+		damage[i] = 0.0
+	Next
+	; set up assorted game parameters
+	a.batx = 0
+	a.baty = 0
+	a.indate = 100.0 * Int(31.0 * p_Rand() + 20.0)
+	d.date = a.indate
+	d.killk = 0
+	d.killc = 0
+	a.nkinks = 0
+	a.nhelp = 0
+	a.resting = 0
+	a.casual = 0
+	d.nromkl = 0
+	a.isatb = 0
+	a.iscate = 0
+	a.imine = 0
+	a.icrystl = 0
+	a.icraft = 0
+	d.nsckill = 0
+	d.nplankl = 0
+	d.starkl = 0
+	a.iscraft = 1
+	a.landed = -1
+	a.alive = 1
+	a.docfac = 0.25
+	For i = 1 To 8
+		For j = 1 To 8
+			d.newstuf[i][j] = 0
+			starch[i][j] = 0
+		Next
+	Next
+	; initialize times for extraneous events
+	future[FSNOVA] = d.date + p_Expran(0.5 * a.intime)
+	future[FTBEAM] = d.date + p_Expran(1.5 * (a.intime / d.remcom))
+	future[FSNAP] = d.date + 1.0 + p_Rand()   ; force an early snapshot
+	future[FBATTAK] = d.date + p_Expran(0.3 * a.intime)
+	future[FCDBAS] = INF
+	If d.nscrem <> 0
+		future[FSCMOVE] = d.date + 0.2777
+	Else
+		future[FSCMOVE] = INF
+	EndIf
+	future[FSCDBAS] = INF
+	future[FDSPROB] = INF
+	; star chart is functional
+	a.stdamtim = INF
+	; put stars in the galaxy
+	a.instar = 0
+	For i = 1 To 8
+		For j = 1 To 8
+			k = Int(p_Rand() * 9.0 + 1.0)
+			a.instar = a.instar + k
+			d.galaxy[i][j] = k
+		Next
+	Next
+	; locate star bases in galaxy
+	For i = 1 To a.inbase
+		Repeat
+			Repeat
+				ix, iy = p_Iran8()
+			Until d.galaxy[ix][iy] < 10
+			contflag = False
+			For j = i - 1 To 1 Step -1
+				If contflag = False
+					; improved placement algorithm to spread out bases
+					distq = p_Sq(ix - d.baseqx[j]) + p_Sq(iy - d.baseqy[j])
+					If (distq < 6.0 * (6 - a.inbase)) And (p_Rand() < 0.75)
+						contflag = True
+					EndIf
+				EndIf
+			Next
+		Until contflag = False
+		d.baseqx[i] = ix
+		d.baseqy[i] = iy
+		starch[ix][iy] = -1
+		d.galaxy[ix][iy] = d.galaxy[ix][iy] + 10
+	Next
+	; position ordinary Klingon battle cruisers
+	krem = a.inkling - a.incom - d.nscrem
+	klumper = Int(0.25 * a.skill * (9.0 - a.length) + 1.0)
+	If klumper > 9
+		klumper = 9   ; can't have more than 9 in quadrant
+	EndIf
+	Repeat
+		r = p_Rand()
+		klump = Int((1.0 - r * r) * klumper)
+		If klump > krem
+			klump = krem
+		EndIf
+		krem = krem - klump
+		klump = klump * 100
+		Repeat
+			ix, iy = p_Iran8()
+		Until d.galaxy[ix][iy] + klump < 1000
+		d.galaxy[ix][iy] = d.galaxy[ix][iy] + klump
+	Until krem <= 0
+	; position Klingon commander ships
+	For i = 1 To a.incom
+		Repeat
+			Repeat
+				ix, iy = p_Iran8()
+			Until ((d.galaxy[ix][iy] < 99) And (p_Rand() < 0.75)) = False And (d.galaxy[ix][iy] <= 899)
+			; check for duplicate
+			dup = False
+			For j = 1 To i - 1
+				If (d.cx[j] = ix) And (d.cy[j] = iy)
+					dup = True
+				EndIf
+			Next
+		Until dup = False
+		d.galaxy[ix][iy] = d.galaxy[ix][iy] + 100
+		d.cx[i] = ix
+		d.cy[i] = iy
+	Next
+	; locate planets in galaxy
+	For i = 1 To a.inplan
+		Repeat
+			ix, iy = p_Iran8()
+		Until d.newstuf[ix][iy] <= 0
+		d.newstuf[ix][iy] = 1
+		d.plnets[i].x = ix
+		d.plnets[i].y = iy
+		d.plnets[i].pclass = Int(p_Rand() * 3.0 + 1.0)   ; class M N or O
+		d.plnets[i].crystals = Int(1.5 * p_Rand())       ; 1 in 3 chance of crystals
+		d.plnets[i].known = 0
+	Next
+	; locate Romulans
+	For i = 1 To d.nromrem
+		ix, iy = p_Iran8()
+		d.newstuf[ix][iy] = d.newstuf[ix][iy] + 10
+	Next
+	; locate the Super Commander
+	If d.nscrem > 0
+		Repeat
+			ix, iy = p_Iran8()
+		Until d.galaxy[ix][iy] < 900
+		d.isx = ix
+		d.isy = iy
+		d.galaxy[ix][iy] = d.galaxy[ix][iy] + 100
+	EndIf
+	; place thing (in tournament game, thingx == -1, don't want one!)
+	If (p_Rand() < 0.1) And (a.thingx <> -1)
+		a.thingx, a.thingy = p_Iran8()
+	Else
+		a.thingx = 0
+		a.thingy = 0
+	EndIf
+
+	p_Skip(3)
+	d.snap = 0
+
+	If a.skill = SNOVICE
+		p_Prout("It is stardate " .. Int(d.date) .. ". The Federation is being attacked by")
+		p_Prout("a deadly Klingon invasion force. As captain of the United")
+		p_Prout("Starship U.S.S. Enterprise, it is your mission to seek out")
+		p_Prout("and destroy this invasion force of " .. a.inkling .. " battle cruisers.")
+		p_Prout("You have an initial allotment of " .. Int(a.intime) .. " stardates to complete")
+		p_Prout("your mission.  As you proceed you may be given more time.")
+		p_Prout("")
+		p_Prout("You will have " .. a.inbase .. " supporting starbases.")
+		p_Proutn("Starbase locations-  ")
+	Else
+		p_Prout("Stardate " .. Int(d.date) .. ".")
+		p_Prout("")
+		p_Prout(a.inkling .. " Klingons,")
+		p_Prout("an unknown number of Romulans")
+		If d.nscrem <> 0
+			p_Prout("and one (GULP) Super-Commander.")
+		EndIf
+		p_Prout(Int(a.intime) .. " stardates")
+		p_Proutn(a.inbase .. " starbases in  ")
+	EndIf
+	For i = 1 To a.inbase
+		p_Cramlc(0, d.baseqx[i], d.baseqy[i])
+		If i < a.inbase
+			p_Proutn("  ")
+		EndIf
+	Next
+	p_Skip(2)
+	p_Proutn("~g~The Enterprise is currently in~w~")
+	p_Cramlc(1, a.quadx, a.quady)
+	p_Proutn(" ")
+	p_Cramlc(2, a.sectx, a.secty)
+	p_Skip(2)
+	p_Proutn("~B~Good Luck!~n~")
+	If d.nscrem <> 0
+		p_Proutn("  YOU'LL NEED IT.")
+	EndIf
+	p_Skip(1)
+	p_Newqad(0)
+	g_ingame = True
+	If a.nenhere <> 0
+		a.shldup = 1
+	EndIf
+	If a.neutz <> 0
+		p_Attack(0)   ; bad luck to start in a Romulan Neutral Zone
+	EndIf
+EndFunction
+
+Function p_Choose()
+	Local key, done
+	a.tourn = 0
+	a.thawed = 0
+	a.skill = 0
+	a.length = 0
+	done = False
+	While done = False
+		p_Proutn("Would you like a ~B~regular~n~, ~B~tournament~n~, or ~B~frozen~n~ game? (or ~B~quit~n~): ")
+		p_Scan()
+		If StrLen(citem) = 0
+			; try again
+		ElseIf p_Isit("tournament")
+			While p_Scan() = IHEOL
+				p_Proutn("Type in tournament number-")
+			Wend
+			If aaitem = 0
+				p_Chew()
+			Else
+				a.tourn = Int(aaitem)
+				a.thingx = -1
+				p_Srand(aaitem)
+				done = True
+			EndIf
+		ElseIf p_Isit("frozen")
+			p_Thaw()
+			p_Chew()
+			If passwd <> ""
+				p_Randomize()
+				p_Rand()
+				p_Rand()
+				p_Rand()
+				p_Rand()
+				If a.alldone = 0
+					a.thawed = 1   ; no plaque if not finished
+				EndIf
+				p_Report(1)
+				Return(True)
+			EndIf
+		ElseIf p_Isit("quit")
+			End()
+		ElseIf p_Isit("regular")
+			p_Skip(2)
+			p_Randomize()
+			p_Rand()
+			p_Rand()
+			p_Rand()
+			p_Rand()
+			done = True
+		Else
+			p_Proutn("What is \"")
+			p_Proutn(citem)
+			p_Prout("\"?")
+			p_Chew()
+		EndIf
+	Wend
+	While (a.length = 0) Or (a.skill = 0)
+		If p_Scan() = IHALPHA
+			If p_Isit("short")
+				a.length = 1
+			ElseIf p_Isit("medium")
+				a.length = 2
+			ElseIf p_Isit("long")
+				a.length = 4
+			ElseIf p_Isit("novice")
+				a.skill = SNOVICE
+			ElseIf p_Isit("fair")
+				a.skill = SFAIR
+			ElseIf p_Isit("good")
+				a.skill = SGOOD
+			ElseIf p_Isit("expert")
+				a.skill = SEXPERT
+			ElseIf p_Isit("emeritus")
+				a.skill = SEMERITUS
+			Else
+				p_Proutn("What is \"")
+				p_Proutn(citem)
+				p_Prout("\"?")
+			EndIf
+		Else
+			p_Chew()
+			If a.length = 0
+				p_Proutn("Would you like a ~B~Short~n~, ~B~Medium~n~, or ~B~Long~n~ game? ")
+			ElseIf a.skill = 0
+				p_Proutn("Are you a ~B~Novice~n~, ~B~Fair~n~, ~B~Good~n~, ~B~Expert~n~, or ~B~Emeritus~n~ player?")
+			EndIf
+		EndIf
+	Wend
+	Repeat
+		p_Scan()
+		passwd = citem
+		p_Chew()
+		If passwd = ""
+			p_Proutn("Please type in a secret password (9 characters maximum)-")
+		EndIf
+	Until passwd <> ""
+
+	; use parameters to generate initial values of things
+	a.damfac = 0.5 * a.skill
+	d.rembase = Int(3.0 * p_Rand() + 2.0)
+	a.inbase = d.rembase
+	a.inplan = Int((PLNETMAX / 2) + (PLNETMAX / 2 + 1) * p_Rand())
+	d.nromrem = Int((2.0 + p_Rand()) * a.skill)
+	If a.skill > SFAIR
+		d.nscrem = 1
+	Else
+		d.nscrem = 0
+	EndIf
+	d.remtime = 7.0 * a.length
+	a.intime = d.remtime
+	d.remkl = Int(2.0 * a.intime * ((a.skill + 1 - 2 * p_Rand()) * a.skill * 0.1 + 0.15))
+	a.inkling = d.remkl
+	a.incom = Int(a.skill + 0.0625 * a.inkling * p_Rand())
+	d.remcom = p_IMin(10, a.incom)
+	a.incom = d.remcom
+	d.remres = (a.inkling + 4 * a.incom) * a.intime
+	a.inresor = d.remres
+	If a.inkling > 50
+		d.rembase = d.rembase + 1
+		a.inbase = d.rembase
+	EndIf
+	a.brigcapacity = 400
+	d.brigfree = a.brigcapacity
+	d.kcaptured = 0
+	a.ncviol = 0
+	a.iscloaked = 0
+	a.iscloaking = 0
+	Return(False)
+EndFunction
+
+Function p_Dropin(iquad)
+	Local ix, iy
+	Repeat
+		ix, iy = p_Iran10()
+	Until quad[ix][iy] = IHDOT
+	quad[ix][iy] = iquad
+	Return(ix, iy)
+EndFunction
+
+Function p_Newcnd()
+	a.condit = IHGREEN
+	If a.energy < 1000.0
+		a.condit = IHYELLOW
+	EndIf
+	If (d.galaxy[a.quadx][a.quady] > 99) Or (d.newstuf[a.quadx][a.quady] > 9)
+		a.condit = IHRED
+	EndIf
+EndFunction
+
+Function p_Newqad(shutup)
+	Local quadnum = d.galaxy[a.quadx][a.quady]
+	Local newnum = d.newstuf[a.quadx][a.quady]
+	Local i, j, ix, iy, nplan, found
+
+	a.iattak = 1
+	a.justin = 1
+	a.basex = 0
+	a.basey = 0
+	a.klhere = 0
+	a.comhere = 0
+	a.plnetx = 0
+	a.plnety = 0
+	a.ishere = 0
+	a.irhere = 0
+	a.iplnet = 0
+	a.nenhere = 0
+	a.neutz = 0
+	a.inorbit = 0
+	a.landed = -1
+	a.ientesc = 0
+	a.ithere = 0
+	a.iseenit = 0
+	a.isviolreported = 0
+	If a.iscate <> 0
+		; attempt to escape Super-commander, so tbeam back!
+		a.iscate = 0
+		a.ientesc = 1
+	EndIf
+	; clear quadrant
+	For i = 1 To 10
+		For j = 1 To 10
+			quad[i][j] = IHDOT
+		Next
+	Next
+	; cope with supernova
+	If quadnum > 999
+		Return
+	EndIf
+	a.klhere = Int(quadnum / 100)
+	a.irhere = Int(newnum / 10)
+	nplan = p_Mod(newnum, 10)
+	a.nenhere = a.klhere + a.irhere
+
+	; position starship
+	quad[a.sectx][a.secty] = a.ship
+
+	; decide if quadrant needs a Tholian
+	If ((a.skill < SGOOD) And (p_Rand() <= 0.02)) Or ((a.skill = SGOOD) And (p_Rand() <= 0.05)) Or ((a.skill > SGOOD) And (p_Rand() <= 0.08))
+		Repeat
+			If p_Rand() > 0.5
+				a.ithx = 10
+			Else
+				a.ithx = 1
+			EndIf
+			If p_Rand() > 0.5
+				a.ithy = 10
+			Else
+				a.ithy = 1
+			EndIf
+		Until quad[a.ithx][a.ithy] = IHDOT
+		quad[a.ithx][a.ithy] = IHT
+		a.ithere = 1
+		; reserve unoccupied corners
+		If quad[1][1] = IHDOT
+			quad[1][1] = "X"
+		EndIf
+		If quad[1][10] = IHDOT
+			quad[1][10] = "X"
+		EndIf
+		If quad[10][1] = IHDOT
+			quad[10][1] = "X"
+		EndIf
+		If quad[10][10] = IHDOT
+			quad[10][10] = "X"
+		EndIf
+	EndIf
+
+	If quadnum >= 100
+		; position ordinary Klingons
+		quadnum = quadnum - 100 * a.klhere
+		For i = 1 To a.klhere
+			ix, iy = p_Dropin(IHK)
+			kx[i] = ix
+			ky[i] = iy
+			kdist[i] = Sqrt(p_Sq(a.sectx - ix) + p_Sq(a.secty - iy))
+			kavgd[i] = kdist[i]
+			kpower[i] = p_Rand() * 150.0 + 300.0 + 25.0 * a.skill
+		Next
+		; if we need a commander, promote a Klingon
+		found = False
+		For i = 1 To d.remcom
+			If (d.cx[i] = a.quadx) And (d.cy[i] = a.quady)
+				found = True
+			EndIf
+		Next
+		If found
+			quad[ix][iy] = IHC
+			kpower[a.klhere] = 950.0 + 400.0 * p_Rand() + 50.0 * a.skill
+			a.comhere = 1
+		EndIf
+		; if we need a super-commander, promote a Klingon
+		If (a.quadx = d.isx) And (a.quady = d.isy)
+			quad[kx[1]][ky[1]] = IHS
+			kpower[1] = 1175.0 + 400.0 * p_Rand() + 125.0 * a.skill
+			a.iscate = 1
+			a.ishere = 1
+		EndIf
+	EndIf
+	; put in Romulans if needed
+	For i = a.klhere + 1 To a.nenhere
+		ix, iy = p_Dropin(IHR)
+		kx[i] = ix
+		ky[i] = iy
+		kdist[i] = Sqrt(p_Sq(a.sectx - ix) + p_Sq(a.secty - iy))
+		kavgd[i] = kdist[i]
+		kpower[i] = p_Rand() * 400.0 + 450.0 + 50.0 * a.skill
+	Next
+	p_Sortkl()
+	; if quadrant needs a starbase, put it in
+	If quadnum >= 10
+		quadnum = quadnum - 10
+		a.basex, a.basey = p_Dropin(IHB)
+	EndIf
+
+	If nplan <> 0
+		; if quadrant needs a planet, put it in
+		For i = 1 To a.inplan
+			If (a.iplnet = 0) And (d.plnets[i].x = a.quadx) And (d.plnets[i].y = a.quady)
+				a.iplnet = i
+			EndIf
+		Next
+		If a.iplnet <> 0
+			a.plnetx, a.plnety = p_Dropin(IHP)
+		EndIf
+	EndIf
+	; check for condition
+	p_Newcnd()
+	; and finally the stars
+	For i = 1 To quadnum
+		p_Dropin(IHSTAR)
+	Next
+
+	; check for RNZ
+	If (a.irhere > 0) And (a.klhere = 0) And (a.basex = 0)
+		a.neutz = 1
+		If p_Reports()
+			p_Skip(1)
+			p_Prout("~r~LT. UHURA~w~- \"Captain, an urgent message.")
+			p_Prout("  I'll put it on audio.\"  CLICK")
+			p_Skip(1)
+			p_Prout("INTRUDER! YOU HAVE VIOLATED THE ROMULAN NEUTRAL ZONE.")
+			p_Prout("LEAVE AT ONCE, OR YOU WILL BE DESTROYED!")
+		EndIf
+	EndIf
+
+	If shutup = 0
+		; put in THING if needed
+		If (a.thingx = a.quadx) And (a.thingy = a.quady)
+			p_Dropin(IHQUEST)
+			a.thingx = 0
+			a.thingy = 0   ; transient
+			If damage[DSRSENS] = 0.0
+				p_Skip(1)
+				p_Prout("MR. SPOCK- \"Captain, this is most unusual.")
+				p_Prout("    Please examine your short-range scan.\"")
+			EndIf
+		EndIf
+	EndIf
+
+	; put in a few black holes
+	For i = 1 To 3
+		If p_Rand() > 0.5
+			p_Dropin(IHBLANK)
+		EndIf
+	Next
+
+	; take out X's in corners if Tholian present
+	If a.ithere <> 0
+		If quad[1][1] = "X"
+			quad[1][1] = IHDOT
+		EndIf
+		If quad[1][10] = "X"
+			quad[1][10] = IHDOT
+		EndIf
+		If quad[10][1] = "X"
+			quad[10][1] = IHDOT
+		EndIf
+		If quad[10][10] = "X"
+			quad[10][10] = IHDOT
+		EndIf
+	EndIf
+EndFunction
+
+Function p_Sortkl()
+	Local t, sw, j, k
+	If a.nenhere < 2
+		Return
+	EndIf
+	Repeat
+		sw = False
+		For j = 1 To a.nenhere - 1
+			If kdist[j] > kdist[j + 1]
+				sw = True
+				t = kdist[j]
+				kdist[j] = kdist[j + 1]
+				kdist[j + 1] = t
+				t = kavgd[j]
+				kavgd[j] = kavgd[j + 1]
+				kavgd[j + 1] = t
+				k = kx[j]
+				kx[j] = kx[j + 1]
+				kx[j + 1] = k
+				k = ky[j]
+				ky[j] = ky[j + 1]
+				ky[j + 1] = k
+				t = kpower[j]
+				kpower[j] = kpower[j + 1]
+				kpower[j + 1] = t
+			EndIf
+		Next
+	Until sw = False
+EndFunction
